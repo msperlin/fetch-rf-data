@@ -1,0 +1,18 @@
+[project]
+name = "01-fetch-rf-data"
+version = "0.1.0"
+description = "Scripts for downloading data from Receita Federal Brasileira"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "bs4>=0.0.2",
+    "duckdb>=1.5.6",
+    "logging>=0.4.9.6",
+    "lxml>=6.0.2",
+    "pandas>=2.3.3",
+    "pathlib>=1.0.1",
+    "requests>=2.32.5",
+    "sqlalchemy>=2.0.45",
+    "toml>=0.10.2",
+    "tqdm>=4.67.1",
+]
