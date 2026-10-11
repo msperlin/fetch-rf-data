@@ -14,7 +14,7 @@ Este projeto fornece um conjunto de scripts Python para baixar, descompactar, li
 
 ## Pré-requisitos
 
-- Python 3.6+
+- Python 3.10+
 - [uv](https://github.com/astral-sh/uv)
 
 ## Instalação com uv
@@ -23,16 +23,15 @@ Este projeto fornece um conjunto de scripts Python para baixar, descompactar, li
 
 2. Clone este repositório:
    ```bash
-   git clone <url-do-repositorio>
+   git clone https://github.com/msperlin/fetch-rf-data.git
    ```
 3. Navegue até o diretório do projeto:
    ```bash
-   cd 01_fetch-RF-data
+   cd fetch-rf-data
    ```
-4. Crie um ambiente virtual e instale as dependências:
+4. Crie o ambiente virtual e instale as dependências:
    ```bash
-   uv venv
-   uv pip sync
+   uv sync
    ```
 5. Ative o ambiente virtual
    ```bash

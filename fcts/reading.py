@@ -1,24 +1,41 @@
-import pandas as pd
-import os
-import sqlalchemy
 import glob
+import os
+
+import pandas as pd
+import sqlalchemy
 
 from fcts.cleaning import clean_df
 from fcts.utils import get_config
 
-config = get_config()
+# Defaults for the CSV layout of the Receita public data files
+# (overridable via [leitura] in config.toml).
+DEFAULT_CHUNKSIZE = 500_000
+DEFAULT_ENCODING = "latin1"
+DEFAULT_SEPARATOR = ";"
 
-# CSV layout of the Receita public data files (overridable via [leitura]).
-_leitura = config.get("leitura", {})
-CHUNKSIZE = _leitura.get("chunksize", 500_000)
-ENCODING = _leitura.get("encoding", "latin1")
-SEPARATOR = _leitura.get("separator", ";")
+
+def _leitura_config():
+    """Read the ``[leitura]`` section lazily.
+
+    Kept as a function (instead of module-level constants) so that importing
+    this module does not require ``config.toml`` to exist.
+    """
+
+    leitura = get_config().get("leitura", {})
+    return (
+        leitura.get("chunksize", DEFAULT_CHUNKSIZE),
+        leitura.get("encoding", DEFAULT_ENCODING),
+        leitura.get("separator", DEFAULT_SEPARATOR),
+    )
+
 
 # load small lookup tables and index them
-def load_code_table(file_ext, table_name, 
+def load_code_table(file_ext, table_name,
                     conn,
-                    dir_unzip, 
+                    dir_unzip,
                     remove_extracted_after_use=True):
+    _, encoding, separator = _leitura_config()
+
     files = list(glob.glob(os.path.join(dir_unzip, "*" + file_ext)))
     if not files:
         print(f"No file found for {file_ext} to load table {table_name}")
@@ -28,8 +45,8 @@ def load_code_table(file_ext, table_name,
     df = pd.read_csv(
         file_path,
         dtype=str,
-        sep=SEPARATOR,
-        encoding=ENCODING,
+        sep=separator,
+        encoding=encoding,
         header=None,
         names=["codigo", "descricao"],
     )
@@ -37,10 +54,11 @@ def load_code_table(file_ext, table_name,
     df.to_sql(table_name, conn, if_exists="replace", index=False)
 
     conn.execute(f"CREATE INDEX idx_{table_name} ON {table_name}(codigo);")
-    
+
     if remove_extracted_after_use:
         print("removing file", file_path)
         os.remove(file_path)
+
 
 def create_table_sql(table_name, columns):
     sql = "CREATE TABLE " + table_name + " ("
@@ -53,32 +71,32 @@ def create_table_sql(table_name, columns):
 
 
 def load_sqlite_by_pattern(
-        table_name, file_pattern, columns, cols_to_drop, 
+        table_name, file_pattern, columns, cols_to_drop,
         dir_unzip, engine_url,
         remove_extracted_after_use=True):
-        
+    chunksize, encoding, separator = _leitura_config()
+
     files = sorted(list(glob.glob(os.path.join(dir_unzip, "*" + file_pattern))))
 
     for k, f in enumerate(files):
         print(f"** [{k+1}|{len(files)}] LOADING {os.path.basename(f)} into table {table_name} **")
-    
+
         # estimate total chunks by counting file lines (may be approximate if fields contain newlines)
-        chunksize = CHUNKSIZE
         total_rows = None
         try:
-            with open(f, "r", encoding=ENCODING, errors="replace") as fh:
+            with open(f, "r", encoding=encoding, errors="replace") as fh:
                 total_rows = sum(1 for _ in fh)
         except Exception:
             total_rows = None
 
         csv_iter = pd.read_csv(
             f,
-            sep=SEPARATOR,
+            sep=separator,
             iterator=True,
             chunksize=chunksize,
             header=None,
             names=columns,
-            encoding=ENCODING,
+            encoding=encoding,
             dtype=str,
             engine="c",
             na_filter=False
@@ -98,20 +116,13 @@ def load_sqlite_by_pattern(
             print(f"\t-> dumping {table_name} chunk of size {len(chunk)} to sqlite")
 
             chunk.to_sql(
-                table_name, engine_url, 
-                index=None, if_exists="append", 
+                table_name, engine_url,
+                index=None, if_exists="append",
                 dtype=sqlalchemy.sql.sqltypes.TEXT
                 )
 
-            #if i_chunk == 0:
-            #    break # for testing, remove this line to process all chunks
-        
         if remove_extracted_after_use:
             print("\t-> removing file", f)
             os.remove(f)
 
-        #if k == 0:
-        #    break # for testing, remove this line to process all files
-
         print("\t-> partial done...")
-

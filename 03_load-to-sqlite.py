@@ -244,7 +244,7 @@ def remove_source_files(dir_unzip, code_tables, big_tables):
     patterns = [t.pattern for t in code_tables] + [t.pattern for t in big_tables]
     for pattern in patterns:
         for path in glob.glob(str(Path(dir_unzip) / ("*" + pattern))):
-            print("removing file", path)
+            logging.info("Removendo arquivo: %s", path)
             os.remove(path)
 
 
