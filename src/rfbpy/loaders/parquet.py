@@ -27,9 +27,15 @@ def load_tables(
     memory_limit=None,
     temp_directory=None,
     null_padding=False,
+    stamp_value=None,
+    metadata=None,
     show_progress=False,
 ):
     """Write ``<dir_parquet>/<table>.parquet`` for every table.
+
+    When ``stamp_value`` is given, a ``source_month`` column is added; when
+    ``metadata`` (a mapping of str -> str) is given, it is embedded in each
+    parquet file as key/value metadata.
 
     Returns ``{table_name: row_count}``.
     """
@@ -38,6 +44,7 @@ def load_tables(
     dir_parquet.mkdir(parents=True, exist_ok=True)
     dir_unzip = Path(dir_unzip)
     encoding = duck.normalize_encoding(encoding)
+    kv = {str(k): str(v) for k, v in (metadata or {}).items() if v is not None}
 
     steps = duck.table_steps(code_tables, big_tables)
     total_steps = len(steps)
@@ -83,12 +90,16 @@ def load_tables(
 
             if kind == "code":
                 def build(paths, t=table, out=out_path):
-                    query = duck.code_table_query(t, paths, separator, encoding, null_padding)
-                    return _copy_sql(query, out, compression)
+                    query = duck.code_table_query(
+                        t, paths, separator, encoding, null_padding, stamp=stamp_value
+                    )
+                    return _copy_sql(query, out, compression, kv)
             else:
                 def build(paths, t=table, out=out_path):
-                    query = duck.big_table_query(t, paths, separator, encoding, null_padding)
-                    return _copy_sql(query, out, compression)
+                    query = duck.big_table_query(
+                        t, paths, separator, encoding, null_padding, stamp=stamp_value
+                    )
+                    return _copy_sql(query, out, compression, kv)
 
             rows = duck.execute_csv(
                 build, paths, temp_directory, con,
@@ -110,7 +121,11 @@ def load_tables(
     return rows_loaded
 
 
-def _copy_sql(query, out_path, compression):
+def _copy_sql(query, out_path, compression, metadata=None):
     path = str(out_path).replace("'", "''")
     comp = str(compression).upper()
-    return f"COPY (\n{query}\n) TO '{path}' (FORMAT PARQUET, COMPRESSION {comp})"
+    options = f"FORMAT PARQUET, COMPRESSION {comp}"
+    if metadata:
+        kv = ", ".join(f"{key}: {duck.sql_str(value)}" for key, value in metadata.items())
+        options += f", KV_METADATA {{{kv}}}"
+    return f"COPY (\n{query}\n) TO '{path}' ({options})"

@@ -58,6 +58,8 @@ duckdb_temp_dir = ""
 duckdb_null_padding = false
 show_progress = true
 db_filename = "{date}_RF-CNPJ-database.db"
+# db_filename may also contain "{month}", replaced by the RFB snapshot month,
+# e.g. "{date}_RF-CNPJ-{month}.db".
 db_date_format = "%Y%m%d"
 load_pragmas = [
     "PRAGMA journal_mode = OFF",
@@ -78,6 +80,17 @@ compression = "zstd"
 # share on every run. Entries expire after ttl_hours (1 day by default).
 enabled = true
 ttl_hours = 24
+
+[stamp]
+# Record which RFB snapshot each output came from (month, URL, file etags).
+# The SQLite db gets an rfb_metadata table, parquet files get embedded
+# key/value metadata plus a _rfb_metadata.json sidecar (also written to the
+# extracted-CSV folder), and .download_metadata.json gets a source block.
+enabled = true
+# Add a source_month column to every table (handy for BigQuery appends).
+column = false
+# Write parquet into a <month>/ subfolder (default: 04_parquet_files/<month>/).
+month_subdir = false
 
 [colunas]
 estabelecimento_cols = [

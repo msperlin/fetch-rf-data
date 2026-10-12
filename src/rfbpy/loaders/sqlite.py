@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import json
 import logging
 import os
 import sqlite3
@@ -41,9 +42,12 @@ def load_tables(
     memory_limit=None,
     temp_directory=None,
     null_padding=False,
+    stamp_value=None,
     show_progress=False,
 ):
     """Create ``path_sqlite`` with the code tables and the big tables.
+
+    When ``stamp_value`` is given, a ``source_month`` column is added.
 
     Returns ``{table_name: row_count}``.
     """
@@ -96,11 +100,15 @@ def load_tables(
 
             if kind == "code":
                 def build(paths, t=table):
-                    query = duck.code_table_query(t, paths, separator, encoding, null_padding)
+                    query = duck.code_table_query(
+                        t, paths, separator, encoding, null_padding, stamp=stamp_value
+                    )
                     return f'CREATE TABLE out."{t.name}" AS\n{query}'
             else:
                 def build(paths, t=table):
-                    query = duck.big_table_query(t, paths, separator, encoding, null_padding)
+                    query = duck.big_table_query(
+                        t, paths, separator, encoding, null_padding, stamp=stamp_value
+                    )
                     return f'CREATE TABLE out."{t.name}" AS\n{query}'
 
             rows = duck.execute_csv(
@@ -168,6 +176,31 @@ def finalize(path_sqlite, load_pragmas, final_pragmas, show_progress=True):
         if "estabelecimento" in existing:
             return conn.execute("SELECT COUNT(*) FROM estabelecimento").fetchone()[0]
         return None
+    finally:
+        conn.close()
+
+
+def write_metadata(path_sqlite, mapping, table="rfb_metadata") -> None:
+    """Create/replace a key/value metadata table in the SQLite database."""
+
+    conn = sqlite3.connect(path_sqlite)
+    try:
+        conn.execute(
+            f'CREATE TABLE IF NOT EXISTS "{table}" (key TEXT PRIMARY KEY, value TEXT)'
+        )
+        rows = []
+        for key, value in mapping.items():
+            if value is None:
+                text = ""
+            elif isinstance(value, (dict, list)):
+                text = json.dumps(value, ensure_ascii=False)
+            else:
+                text = str(value)
+            rows.append((str(key), text))
+        conn.executemany(
+            f'INSERT OR REPLACE INTO "{table}" (key, value) VALUES (?, ?)', rows
+        )
+        conn.commit()
     finally:
         conn.close()
 

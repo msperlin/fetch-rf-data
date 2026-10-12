@@ -158,6 +158,9 @@ rfb = RFBData(
     cache_enabled=True,
     cache_ttl_hours=24,
     cache_dir="cache",
+    stamp_enabled=True,
+    stamp_column=False,
+    stamp_month_subdir=False,
 )
 ```
 
@@ -215,6 +218,33 @@ polars:
 import duckdb
 duckdb.sql("SELECT uf, count(*) FROM 'parquet/*.parquet' GROUP BY 1").show()
 ```
+
+### Source stamping
+
+Every output records which RFB snapshot it came from (`[stamp] enabled`, on by
+default):
+
+- **SQLite** — an `rfb_metadata(key, value)` table (`source_month`,
+  `source_url`, `listed_at`, `generated_at`, `rfbpy_version`, `source_files`).
+- **Parquet** — `_rfb_metadata.json` sidecar **and** embedded key/value metadata
+  in each file.
+- **Extracted CSVs** — a `_rfb_metadata.json` sidecar.
+- **Download metadata** — a `source` block in `.download_metadata.json`.
+
+```python
+rfb.source.month                       # '2026-09' after a discovery/download
+rfb.to_parquet(source_month="2026-09") # or pass it explicitly when loading only
+
+# read the stamp back
+import duckdb, sqlite3
+duckdb.sql("SELECT * FROM parquet_kv_metadata('04_parquet_files/empresas.parquet')")
+sqlite3.connect("03_sqlite_file/20261012_RF-CNPJ-database.db").execute(
+    "SELECT * FROM rfb_metadata").fetchall()
+```
+
+`stamp_column=True` adds a `source_month` column to every table; `db_filename`
+accepts a `{month}` placeholder; `stamp_month_subdir=True` writes parquet into
+`04_parquet_files/<month>/`.
 
 ## Command line
 

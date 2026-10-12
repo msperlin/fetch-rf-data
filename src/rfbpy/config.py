@@ -201,6 +201,15 @@ class Cache:
 
 
 @dataclass
+class Stamp:
+    """Source-vintage stamping of outputs (``[stamp]``)."""
+
+    enabled: bool = True
+    column: bool = False
+    month_subdir: bool = False
+
+
+@dataclass
 class Colunas:
     """Column layout of the RFB CSVs (``[colunas]``)."""
 
@@ -231,6 +240,7 @@ class RFBConfig:
     sqlite: Sqlite = field(default_factory=Sqlite)
     parquet: Parquet = field(default_factory=Parquet)
     cache: Cache = field(default_factory=Cache)
+    stamp: Stamp = field(default_factory=Stamp)
     colunas: Colunas = field(default_factory=Colunas)
 
     # -- construction helpers ------------------------------------------------
@@ -302,6 +312,7 @@ _GROUPS = {
     "sqlite": Sqlite,
     "parquet": Parquet,
     "cache": Cache,
+    "stamp": Stamp,
     "colunas": Colunas,
 }
 
@@ -311,13 +322,16 @@ _FLAT_MAP: dict[str, tuple[str, str]] = {}
 for _group_name, _group in _GROUPS.items():
     for _f in fields(_group):
         _FLAT_MAP[_f.name] = (_group_name, _f.name)
-# Aliases so the flat kwargs read naturally.  The cache's ``enabled`` /
-# ``ttl_hours`` are too generic on their own, so they get a ``cache_`` prefix.
-_FLAT_MAP.pop("enabled", None)
-_FLAT_MAP.pop("ttl_hours", None)
+# Aliases so the flat kwargs read naturally.  Generic field names used by the
+# cache/stamp sections get a prefix.
+for _generic in ("enabled", "ttl_hours", "column", "month_subdir"):
+    _FLAT_MAP.pop(_generic, None)
 _FLAT_MAP["parquet_compression"] = ("parquet", "compression")
 _FLAT_MAP["cache_enabled"] = ("cache", "enabled")
 _FLAT_MAP["cache_ttl_hours"] = ("cache", "ttl_hours")
+_FLAT_MAP["stamp_enabled"] = ("stamp", "enabled")
+_FLAT_MAP["stamp_column"] = ("stamp", "column")
+_FLAT_MAP["stamp_month_subdir"] = ("stamp", "month_subdir")
 
 
 def flat_options() -> list[str]:

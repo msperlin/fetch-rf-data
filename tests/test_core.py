@@ -4,9 +4,10 @@ import time
 import zipfile
 from pathlib import Path
 
+import duckdb
 import pytest
 
-from rfbpy import RFBData, webdav
+from rfbpy import RFBData, SourceInfo, webdav
 from rfbpy.errors import ConfigError, UnavailableFilesError
 
 
@@ -25,6 +26,21 @@ def file_entry(name, payload, url="http://x/", etag="e1"):
         "etag": etag,
         "last_modified": None,
     }
+
+
+def manifest(files, month="2026-09", folder="http://x/2026-09/"):
+    return {
+        "folder": folder,
+        "month": month,
+        "listed_at": "2026-10-12T00:00:00",
+        "files": files,
+    }
+
+
+def patch_manifest(monkeypatch, files, month="2026-09"):
+    monkeypatch.setattr(
+        webdav, "list_manifest", lambda *a, **k: manifest(files, month=month)
+    )
 
 
 @pytest.fixture
@@ -59,15 +75,23 @@ def test_list_months(rfb, monkeypatch):
 
 def test_discover_returns_fileinfo(rfb, monkeypatch):
     payload = zip_with("Cnaes.CNAECSV", "0111301;X")
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", payload)])
     files = rfb.discover()
     assert files[0].name == "Cnaes.zip"
     assert files[0].size == len(payload)
 
 
+def test_discovery_sets_source(rfb, monkeypatch):
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", b"x")], month="2026-09")
+    rfb.discover()
+    assert rfb.source is not None
+    assert rfb.source.month == "2026-09"
+    assert rfb.source.folder_url == "http://x/2026-09/"
+
+
 def test_check_and_download(rfb, monkeypatch, capsys):
     payload = zip_with("Cnaes.CNAECSV", "0111301;X")
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", payload)])
 
     report = rfb.check()
     printed = capsys.readouterr().out
@@ -87,6 +111,7 @@ def test_check_and_download(rfb, monkeypatch, capsys):
     result = rfb.download_and_unzip()
     assert result.downloaded == ["Cnaes.zip"]
     assert result.extract.extracted == ["Cnaes.zip"]
+    assert result.source.month == "2026-09"
     assert result.ok
 
     report2 = rfb.check(print_report=False)
@@ -95,8 +120,7 @@ def test_check_and_download(rfb, monkeypatch, capsys):
 
 
 def test_check_report_format(rfb, monkeypatch):
-    payload = b"data"
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", b"data")])
     report = rfb.check(print_report=False)
     text = report.format()
     assert "Month      : latest" in text
@@ -105,8 +129,7 @@ def test_check_report_format(rfb, monkeypatch):
 
 
 def test_download_dry_run(rfb, monkeypatch):
-    payload = b"data"
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", b"data")])
     result = rfb.download_and_unzip(dry_run=True)
     assert result.dry_run is True
     assert result.planned == ["Cnaes.zip"]
@@ -115,8 +138,7 @@ def test_download_dry_run(rfb, monkeypatch):
 
 
 def test_download_reports_failure(rfb, monkeypatch):
-    payload = b"data"
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", b"data")])
     monkeypatch.setattr(webdav, "download_with_retries", lambda *a, **k: False)
     result = rfb.download_and_unzip()
     assert result.failed == ["Cnaes.zip"]
@@ -125,7 +147,7 @@ def test_download_reports_failure(rfb, monkeypatch):
 
 def test_download_nothing_when_up_to_date(rfb, monkeypatch):
     payload = zip_with("Cnaes.CNAECSV", "0111301;X")
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", payload)])
     rfb.zip_dir.mkdir(parents=True, exist_ok=True)
     (rfb.zip_dir / "Cnaes.zip").write_bytes(payload)
 
@@ -142,17 +164,17 @@ def test_download_nothing_when_up_to_date(rfb, monkeypatch):
 def test_to_parquet_without_network(rfb, capsys):
     rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
     (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
-    result = rfb.to_parquet()
+    result = rfb.to_parquet(source_month="2026-09")
     assert result.destination == "parquet"
     assert result.tables["cnae"] == 1
+    assert result.source.month == "2026-09"
     assert (rfb.parquet_dir / "cnae.parquet").exists()
 
     out = capsys.readouterr().out
     assert "Writing parquet files to:" in out
     assert "RFB CNPJ — parquet" in out
-    assert "cnae" in out
+    assert "Source : 2026-09" in out
     assert "Output :" in out
-    # file sizes are collected per table
     assert "cnae" in result.files and result.files["cnae"] > 0
     assert result.format() == str(result)
 
@@ -166,9 +188,105 @@ def test_to_parquet_print_report_off(rfb, capsys):
     assert "RFB CNPJ — parquet" not in out
 
 
+def test_to_parquet_writes_sidecar_and_embedded_metadata(rfb):
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    rfb.to_parquet(print_report=False, source_month="2026-09")
+
+    sidecar = json.loads((rfb.parquet_dir / "_rfb_metadata.json").read_text())
+    assert sidecar["source_month"] == "2026-09"
+    assert sidecar["rfbpy_version"]
+
+    con = duckdb.connect()
+    try:
+        kv = dict(
+            con.execute(
+                "SELECT key, value FROM parquet_kv_metadata("
+                f"'{rfb.parquet_dir / 'cnae.parquet'}')"
+            ).fetchall()
+        )
+    finally:
+        con.close()
+    assert kv[b"rfb_source_month"] == b"2026-09"
+
+
+def test_to_parquet_month_subdir(tmp_path):
+    rfb = RFBData(
+        processing_dir=str(tmp_path),
+        files_to_download=["Cnaes.zip"],
+        show_progress=False,
+        stamp_month_subdir=True,
+    )
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    result = rfb.to_parquet(print_report=False, source_month="2026-09")
+    assert result.path == tmp_path / "04_parquet_files" / "2026-09"
+    assert (result.path / "cnae.parquet").exists()
+
+
+def test_stamp_column(tmp_path):
+    rfb = RFBData(
+        processing_dir=str(tmp_path),
+        files_to_download=["Cnaes.zip"],
+        show_progress=False,
+        stamp_column=True,
+    )
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    rfb.to_parquet(print_report=False, source_month="2026-09")
+
+    con = duckdb.connect()
+    try:
+        row = con.execute(
+            f"SELECT source_month FROM read_parquet('{rfb.parquet_dir / 'cnae.parquet'}')"
+        ).fetchone()
+    finally:
+        con.close()
+    assert row == ("2026-09",)
+
+
+def test_stamp_disabled(tmp_path):
+    rfb = RFBData(
+        processing_dir=str(tmp_path),
+        files_to_download=["Cnaes.zip"],
+        show_progress=False,
+        stamp_enabled=False,
+    )
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    rfb.to_parquet(print_report=False, source_month="2026-09")
+    assert not (rfb.parquet_dir / "_rfb_metadata.json").exists()
+
+
+def _download_payload(rfb, monkeypatch, payload):
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", payload)])
+
+    def fake_download(url, dir_zip, request_timeout, **kwargs):
+        (Path(dir_zip) / kwargs["name"]).write_bytes(payload)
+        return True
+
+    monkeypatch.setattr(webdav, "download_with_retries", fake_download)
+
+
+def test_unzip_writes_csv_sidecar(rfb, monkeypatch):
+    payload = zip_with("Cnaes.CNAECSV", "0111301;X")
+    _download_payload(rfb, monkeypatch, payload)
+    rfb.download_and_unzip()
+    sidecar = json.loads((rfb.unzip_dir / "_rfb_metadata.json").read_text())
+    assert sidecar["source_month"] == "2026-09"
+
+
+def test_download_metadata_has_source_block(rfb, monkeypatch):
+    payload = zip_with("Cnaes.CNAECSV", "0111301;X")
+    _download_payload(rfb, monkeypatch, payload)
+    rfb.download_and_unzip()
+    meta = json.loads((rfb.zip_dir / ".download_metadata.json").read_text())
+    assert meta["__source__"]["source_month"] == "2026-09"
+
+
 def test_run_end_to_end_parquet(rfb, monkeypatch):
     payload = zip_with("Cnaes.CNAECSV", "0111301;Produção de arroz")
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", payload)])
 
     def fake_download(url, dir_zip, request_timeout, **kwargs):
         (Path(dir_zip) / kwargs["name"]).write_bytes(payload)
@@ -179,6 +297,7 @@ def test_run_end_to_end_parquet(rfb, monkeypatch):
     assert result.ok
     assert result.extract.extracted == ["Cnaes.zip"]
     assert result.load.tables["cnae"] == 1
+    assert result.load.source.month == "2026-09"
     assert (rfb.parquet_dir / "cnae.parquet").exists()
 
 
@@ -193,7 +312,7 @@ def test_unavailable_file_raises_with_instructions(tmp_path, monkeypatch):
         files_to_download=["Cnaes.zip", "Socios.zip"],
         show_progress=False,
     )
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", b"x")])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", b"x")])
     with pytest.raises(UnavailableFilesError) as exc:
         rfb.check(print_report=False)
     message = str(exc.value)
@@ -204,7 +323,7 @@ def test_unavailable_file_raises_with_instructions(tmp_path, monkeypatch):
 
 
 def test_only_unavailable_raises(rfb, monkeypatch):
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", b"x")])
+    patch_manifest(monkeypatch, [file_entry("Cnaes.zip", b"x")])
     with pytest.raises(UnavailableFilesError):
         rfb.download_and_unzip(only="Nope")
 
@@ -215,11 +334,13 @@ def test_multi_file_substring_matches(monkeypatch, tmp_path):
         files_to_download=["Estabelecimentos"],
         show_progress=False,
     )
-    files = [
-        file_entry("Estabelecimentos0.zip", b"a"),
-        file_entry("Estabelecimentos1.zip", b"bb"),
-    ]
-    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: files)
+    patch_manifest(
+        monkeypatch,
+        [
+            file_entry("Estabelecimentos0.zip", b"a"),
+            file_entry("Estabelecimentos1.zip", b"bb"),
+        ],
+    )
     assert [f.name for f in rfb.discover()] == [
         "Estabelecimentos0.zip",
         "Estabelecimentos1.zip",
@@ -231,9 +352,9 @@ def _counting_list(monkeypatch, calls):
 
     def fake_list(*a, **k):
         calls["n"] += 1
-        return files
+        return manifest(files)
 
-    monkeypatch.setattr(webdav, "list_files", fake_list)
+    monkeypatch.setattr(webdav, "list_manifest", fake_list)
     return files
 
 
@@ -288,3 +409,15 @@ def test_manifest_cache_expires(tmp_path, monkeypatch):
 
     rfb.check(print_report=False)
     assert calls["n"] == 2
+
+
+def test_sourceinfo_roundtrip():
+    info = SourceInfo(month="2026-09", folder_url="http://x/2026-09/", listed_at="t")
+    again = SourceInfo.from_dict(info.to_dict())
+    assert again.month == "2026-09"
+    assert again.folder_url == "http://x/2026-09/"
+
+
+def test_sourceinfo_unknown_ignores_non_month():
+    assert SourceInfo.unknown(month="latest").month is None
+    assert SourceInfo.unknown(month="2026-09").month == "2026-09"

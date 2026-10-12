@@ -192,6 +192,21 @@ def test_list_files_unfiltered_sorted(monkeypatch):
     ]
 
 
+def test_list_manifest_resolves_month(monkeypatch):
+    folders = [entry(BASE + "2026-09/", is_collection=True)]
+    files = [entry(BASE + "2026-09/Cnaes.zip", size=20)]
+
+    def fake_propfind(session, url, timeout):
+        return files if url.endswith("2026-09/") else folders
+
+    monkeypatch.setattr(webdav, "_propfind", fake_propfind)
+    manifest = webdav.list_manifest(BASE, 5)
+    assert manifest["month"] == "2026-09"
+    assert manifest["folder"].endswith("2026-09/")
+    assert [f["name"] for f in manifest["files"]] == ["Cnaes.zip"]
+    assert manifest["listed_at"]
+
+
 def test_match_files_splits_matched_and_unmatched():
     files = [{"name": "Cnaes.zip"}, {"name": "Empresas0.zip"}]
     matched, unmatched = webdav.match_files(files, ["Cnaes", "Socios.zip", "Empresas"])

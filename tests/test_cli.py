@@ -11,6 +11,18 @@ def _write_config(tmp_path):
     return path
 
 
+def _manifest():
+    return {
+        "folder": "http://x/2026-09/",
+        "month": "2026-09",
+        "listed_at": "2026-10-12T00:00:00",
+        "files": [
+            {"name": "Cnaes.zip", "url": "http://x/Cnaes.zip", "size": 10,
+             "etag": "e1", "last_modified": None}
+        ],
+    }
+
+
 def test_missing_config_returns_error(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert cli.main(["check"]) == 1
@@ -30,11 +42,7 @@ def test_months(tmp_path, monkeypatch, capsys):
 def test_check(tmp_path, monkeypatch, capsys):
     config = _write_config(tmp_path)
     monkeypatch.setattr(
-        "rfbpy.webdav.list_files",
-        lambda *a, **k: [
-            {"name": "Cnaes.zip", "url": "http://x/Cnaes.zip", "size": 10,
-             "etag": "e1", "last_modified": None}
-        ],
+        "rfbpy.webdav.list_manifest", lambda *a, **k: _manifest()
     )
     assert cli.main(["--config", str(config), "check"]) == 0
     out = capsys.readouterr().out
@@ -44,11 +52,7 @@ def test_check(tmp_path, monkeypatch, capsys):
 def test_download_dry_run(tmp_path, monkeypatch, capsys):
     config = _write_config(tmp_path)
     monkeypatch.setattr(
-        "rfbpy.webdav.list_files",
-        lambda *a, **k: [
-            {"name": "Cnaes.zip", "url": "http://x/Cnaes.zip", "size": 10,
-             "etag": "e1", "last_modified": None}
-        ],
+        "rfbpy.webdav.list_manifest", lambda *a, **k: _manifest()
     )
     assert cli.main(["--config", str(config), "download-and-unzip", "--dry-run"]) == 0
     assert "Cnaes.zip" in capsys.readouterr().out
@@ -57,11 +61,7 @@ def test_download_dry_run(tmp_path, monkeypatch, capsys):
 def test_download_alias(tmp_path, monkeypatch, capsys):
     config = _write_config(tmp_path)
     monkeypatch.setattr(
-        "rfbpy.webdav.list_files",
-        lambda *a, **k: [
-            {"name": "Cnaes.zip", "url": "http://x/Cnaes.zip", "size": 10,
-             "etag": "e1", "last_modified": None}
-        ],
+        "rfbpy.webdav.list_manifest", lambda *a, **k: _manifest()
     )
     # the legacy "download" name is kept as an alias
     assert cli.main(["--config", str(config), "download", "--dry-run"]) == 0

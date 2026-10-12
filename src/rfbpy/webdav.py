@@ -237,8 +237,44 @@ def list_files(
 ):
     """List every ``.zip`` file in the folder (no filtering), smallest first.
 
-    ``month`` may be ``"latest"`` (default), a specific ``YYYY-MM`` folder, or
-    empty to read ``base_url`` directly.
+    Convenience wrapper over :func:`list_manifest`; use that one when you also
+    need the resolved folder URL and month.
+    """
+
+    return list_manifest(
+        base_url,
+        request_timeout,
+        auth=auth,
+        month=month,
+        connect_timeout=connect_timeout,
+        read_timeout=read_timeout,
+        user_agent=user_agent,
+    )["files"]
+
+
+def _month_label(folder, month):
+    """Resolve the ``YYYY-MM`` label of ``folder`` from the request/folder."""
+
+    if month and _MONTH_RE.match(str(month)):
+        return str(month)
+    label = unquote(Path(urlparse(folder).path).name)
+    return label if _MONTH_RE.match(label) else None
+
+
+def list_manifest(
+    base_url,
+    request_timeout,
+    auth=None,
+    month="latest",
+    connect_timeout=None,
+    read_timeout=None,
+    user_agent=None,
+):
+    """List a folder and return ``{"folder", "month", "listed_at", "files"}``.
+
+    ``file`` entries carry ``url``/``name``/``size``/``last_modified``/``etag``.
+    ``month`` is the resolved ``YYYY-MM`` label (``None`` when it cannot be
+    determined) and ``listed_at`` is when the listing was fetched.
     """
 
     if not base_url:
@@ -246,7 +282,7 @@ def list_files(
 
     session = _get_session(auth, user_agent)
     timeout = _timeout(request_timeout, connect_timeout, read_timeout)
-    _folder, entries = _resolve_folder(session, base_url, month, timeout)
+    folder, entries = _resolve_folder(session, base_url, month, timeout)
 
     files = []
     for entry in entries:
@@ -258,7 +294,7 @@ def list_files(
         name = unquote(Path(urlparse(href).path).name)
         files.append(
             {
-                "url": urljoin(_folder, href),
+                "url": urljoin(folder, href),
                 "name": name,
                 "size": entry["size"],
                 "last_modified": entry["last_modified"],
@@ -269,7 +305,12 @@ def list_files(
     # Small files first so useful lookup tables arrive early.
     files.sort(key=lambda f: (f["size"] if f["size"] is not None else 0))
     log.info("Found %d zip files", len(files))
-    return files
+    return {
+        "folder": folder,
+        "month": _month_label(folder, month),
+        "listed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "files": files,
+    }
 
 
 def match_files(files, desired_files):

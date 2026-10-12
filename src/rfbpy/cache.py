@@ -38,13 +38,13 @@ class ManifestCache:
         if not isinstance(entry, dict):
             return None
         saved_at = entry.get("saved_at")
-        files = entry.get("files")
-        if not isinstance(saved_at, (int, float)) or not isinstance(files, list):
+        payload = entry.get("files")
+        if not isinstance(saved_at, (int, float)) or payload is None:
             return None
         age = self._clock() - saved_at
         if age < 0 or age >= self.ttl_seconds:
             return None
-        return files, age
+        return payload, age
 
     def set(self, key, files) -> None:
         """Store ``files`` for ``key``, refreshing the timestamp."""

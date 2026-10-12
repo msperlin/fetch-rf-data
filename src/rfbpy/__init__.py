@@ -10,6 +10,7 @@ from .config import (
     Parquet,
     RFBConfig,
     Sqlite,
+    Stamp,
     Unzip,
     Urls,
     build_config,
@@ -17,7 +18,6 @@ from .config import (
 from .core import (
     CheckReport,
     DownloadResult,
-    FileInfo,
     LoadResult,
     RFBData,
     RunResult,
@@ -30,6 +30,7 @@ from .errors import (
     UnavailableFilesError,
 )
 from .extract import ExtractResult
+from .metadata import FileInfo, SourceInfo
 
 __version__ = "0.1.0"
 
@@ -46,8 +47,10 @@ __all__ = [
     "Sqlite",
     "Parquet",
     "Cache",
+    "Stamp",
     "Colunas",
     "FileInfo",
+    "SourceInfo",
     "CheckReport",
     "DownloadResult",
     "ExtractResult",

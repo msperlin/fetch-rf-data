@@ -166,6 +166,38 @@ def test_rfbdata_to_sqlite_prints_report(tmp_path, capsys):
     assert result.files  # the database file size
 
 
+def test_rfbdata_to_sqlite_stamps_source(tmp_path):
+    rfb = RFBData(
+        processing_dir=str(tmp_path), files_to_download=["Cnaes.zip"], show_progress=False
+    )
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    result = rfb.to_sqlite(print_report=False, source_month="2026-09")
+
+    con = sqlite3.connect(result.path)
+    try:
+        meta = dict(con.execute("SELECT key, value FROM rfb_metadata").fetchall())
+    finally:
+        con.close()
+    assert meta["source_month"] == "2026-09"
+    assert meta["rfbpy_version"]
+
+
+def test_rfbdata_to_sqlite_stamp_column(tmp_path):
+    rfb = RFBData(
+        processing_dir=str(tmp_path), files_to_download=["Cnaes.zip"],
+        show_progress=False, stamp_column=True,
+    )
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    result = rfb.to_sqlite(print_report=False, source_month="2026-09")
+    con = sqlite3.connect(result.path)
+    try:
+        assert con.execute("SELECT source_month FROM cnae").fetchone() == ("2026-09",)
+    finally:
+        con.close()
+
+
 def test_rfbdata_to_sqlite_print_report_off(tmp_path, capsys):
     rfb = RFBData(
         processing_dir=str(tmp_path), files_to_download=["Cnaes.zip"], show_progress=False

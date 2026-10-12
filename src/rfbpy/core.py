@@ -30,6 +30,14 @@ from . import extract as _extract
 from . import tables as _tables
 from . import webdav
 from .cache import ManifestCache
+from .metadata import (
+    FileInfo,
+    SourceInfo,
+    now_iso,
+    read_sidecar,
+    stamp as build_stamp,
+    write_sidecar,
+)
 from .config import (
     RFBConfig,
     build_config,
@@ -42,27 +50,6 @@ from .loaders import sqlite as sqlite_loader
 from .loaders.duck import human_size
 
 log = logging.getLogger("rfbpy")
-
-
-@dataclass(frozen=True)
-class FileInfo:
-    """A remote ``.zip`` file offered by the RFB share."""
-
-    name: str
-    url: str
-    size: int | None = None
-    etag: str | None = None
-    last_modified: str | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "FileInfo":
-        return cls(
-            name=data["name"],
-            url=data.get("url", ""),
-            size=data.get("size"),
-            etag=data.get("etag"),
-            last_modified=data.get("last_modified"),
-        )
 
 
 @dataclass
@@ -133,6 +120,7 @@ class DownloadResult:
     elapsed: float = 0.0
     dry_run: bool = False
     extract: "_extract.ExtractResult | None" = None
+    source: SourceInfo | None = None
 
     @property
     def ok(self) -> bool:
@@ -149,12 +137,15 @@ class LoadResult:
     establishment_count: int | None = None
     elapsed: float = 0.0
     files: dict[str, int] = field(default_factory=dict)  # output name -> bytes
+    source: SourceInfo | None = None
 
     def format(self) -> str:
         """Return a human-readable, printable summary of the load."""
 
         lines = [f"RFB CNPJ — {self.destination}"]
         lines.append(f"  Output : {self.path}")
+        if self.source is not None and self.source.month:
+            lines.append(f"  Source : {self.source.month}")
         lines.append(f"  Tables : {len(self.tables)}")
         if self.files:
             lines.append(f"  Size   : {human_size(sum(self.files.values()))}")
@@ -185,6 +176,10 @@ class RunResult:
     download: DownloadResult
     extract: _extract.ExtractResult
     load: LoadResult | None = None
+
+    @property
+    def source(self) -> SourceInfo | None:
+        return self.download.source
 
     @property
     def ok(self) -> bool:
@@ -219,6 +214,7 @@ class RFBData:
         self.config = config.validate()
         self.paths = config.dirs.paths()
         self.log = logger or log
+        self._source: SourceInfo | None = None
         if verbose:
             logging.getLogger("rfbpy").setLevel(logging.DEBUG)
 
@@ -267,6 +263,31 @@ class RFBData:
             self.cache_path,
             ttl_seconds=float(self.config.cache.ttl_hours) * 3600,
         )
+
+    @property
+    def source(self) -> SourceInfo | None:
+        """The RFB snapshot the last discovery came from (``None`` if unknown)."""
+
+        return self._source
+
+    def _effective_source(self, source_month=None) -> SourceInfo:
+        """Best-effort source stamp: last discovery, else download metadata."""
+
+        if self._source is not None and (self._source.month or self._source.folder_url):
+            return self._source
+        if source_month is not None:
+            return SourceInfo.unknown(month=source_month)
+        recorded = dl.load_metadata(dl.metadata_path(self.zip_dir)).get("__source__")
+        if recorded:
+            info = SourceInfo.from_dict(recorded)
+            if info.known:
+                return info
+        return SourceInfo.unknown(month=self.config.urls.month)
+
+    def _stamp_dict(self, source: SourceInfo | None) -> dict:
+        if not self.config.stamp.enabled:
+            return {}
+        return build_stamp(source, generated_at=now_iso())
 
     def _ensure(self, *dirs: Path) -> None:
         for directory in dirs:
@@ -323,45 +344,63 @@ class RFBData:
         key = f"{cfg.urls.base_url}|{resolved}"
 
         cache = self._manifest_cache()
-        files = None
+        manifest = None
         if cache is not None and not refresh:
             hit = cache.get(key)
             if hit is not None:
-                files, age = hit
+                payload, age = hit
+                manifest = self._as_manifest(payload)
                 log.info(
                     "Using cached file manifest: %s (%d file(s), %.1f h old; "
                     "expires in %.1f h)",
                     cache.path,
-                    len(files),
+                    len(manifest["files"]),
                     age / 3600,
                     (cache.ttl_seconds - age) / 3600,
                 )
 
-        if files is None:
-            files = webdav.list_files(
+        if manifest is None:
+            manifest = webdav.list_manifest(
                 cfg.urls.base_url,
                 cfg.downloads.request_timeout,
                 month=resolved,
                 **self._discovery_kwargs(),
             )
             if cache is not None:
-                cache.set(key, files)
+                cache.set(key, manifest)
                 log.info(
                     "Saved file manifest cache: %s (%d file(s), valid for %.0f h)",
                     cache.path,
-                    len(files),
+                    len(manifest["files"]),
                     cache.ttl_seconds / 3600,
                 )
 
+        self._source = SourceInfo(
+            month=manifest.get("month"),
+            folder_url=manifest.get("folder"),
+            listed_at=manifest.get("listed_at"),
+            files=tuple(FileInfo.from_dict(f) for f in manifest.get("files", [])),
+        )
+
+        files = manifest.get("files", [])
         matched, unmatched = webdav.match_files(files, self._desired_files(only))
         if unmatched:
             raise UnavailableFilesError(
                 unmatched,
                 files,
-                month=resolved,
+                month=self._source.month or resolved,
                 base_url=cfg.urls.base_url,
             )
         return matched
+
+    @staticmethod
+    def _as_manifest(payload) -> dict:
+        """Normalize a cached payload (old list format or new manifest dict)."""
+
+        if isinstance(payload, dict) and "files" in payload:
+            return payload
+        files = payload if isinstance(payload, list) else []
+        return {"folder": None, "month": None, "listed_at": None, "files": files}
 
     def discover(self, only=None, month=None) -> list[FileInfo]:
         """List the remote files matching ``only`` (or the configured list)."""
@@ -465,10 +504,14 @@ class RFBData:
 
         if not raw:
             log.info("Nothing to do: no matching files.")
-            return DownloadResult(skipped=skipped, elapsed=time.time() - started)
+            return DownloadResult(
+                skipped=skipped, elapsed=time.time() - started, source=self._source
+            )
         if not to_download:
             log.info("Nothing to download: everything is up to date.")
-            return DownloadResult(skipped=skipped, elapsed=time.time() - started)
+            return DownloadResult(
+                skipped=skipped, elapsed=time.time() - started, source=self._source
+            )
         if dry_run:
             log.info("Dry run: %d file(s) would be downloaded:", len(to_download))
             for item in to_download:
@@ -478,6 +521,7 @@ class RFBData:
                 skipped=skipped,
                 dry_run=True,
                 elapsed=time.time() - started,
+                source=self._source,
             )
 
         free, needed = dl.check_disk_space(self.zip_dir, to_download)
@@ -569,6 +613,8 @@ class RFBData:
                 executor.shutdown(wait=True)
 
         log.info("Starting downloads (%d small, %d large)...", len(small), len(large))
+        if cfg.stamp.enabled and self._source is not None:
+            metadata["__source__"] = self._source.to_dict()
         try:
             run_batch(small, max_workers)
             run_batch(large, max_large or max_workers)
@@ -596,6 +642,7 @@ class RFBData:
             planned=planned,
             bytes_downloaded=counters["bytes"],
             elapsed=elapsed,
+            source=self._source,
         )
 
     # -- extraction ----------------------------------------------------------
@@ -604,12 +651,16 @@ class RFBData:
         """Extract every downloaded ``.zip`` (idempotent)."""
 
         cfg = self.config
-        return _extract.extract_archives(
+        result = _extract.extract_archives(
             self.zip_dir,
             self.unzip_dir,
             skip_existing=bool(cfg.unzip.skip_existing),
             remove_zip_after_extract=bool(cfg.unzip.remove_zip_after_extract),
         )
+        if cfg.stamp.enabled:
+            source = self._effective_source()
+            write_sidecar(self.unzip_dir, self._stamp_dict(source))
+        return result
 
     # -- loading -------------------------------------------------------------
 
@@ -619,28 +670,32 @@ class RFBData:
         big_tables = _tables.build_big_tables(self.config.colunas, patterns)
         return code_tables, big_tables
 
-    def _db_path(self) -> Path:
+    def _db_path(self, month_label=None) -> Path:
         sqlite = self.config.sqlite
         name = str(sqlite.db_filename).replace(
             "{date}", time.strftime(sqlite.db_date_format)
         )
+        if "{month}" in name:
+            name = name.replace("{month}", str(month_label or "unknown"))
         return self.sqlite_dir / name
 
     def _temp_dir(self) -> Path:
         return Path(self.config.sqlite.duckdb_temp_dir or (self.processing_dir / "duckdb_tmp"))
 
-    def to_sqlite(self, path=None, print_report=True) -> LoadResult:
+    def to_sqlite(self, path=None, print_report=True, source_month=None) -> LoadResult:
         """Load the extracted CSVs into a SQLite database.
 
-        Prints a summary (output path, tables, rows, size, time) unless
-        ``print_report=False``.
+        The database is stamped with its RFB source under a ``rfb_metadata``
+        table. Prints a summary unless ``print_report=False``; pass
+        ``source_month`` to stamp a month when no discovery ran.
         """
 
         cfg = self.config
+        source = self._effective_source(source_month)
         code_tables, big_tables = self._build_tables()
         self._ensure(self.unzip_dir, self.sqlite_dir)
 
-        db_path = Path(path) if path else self._db_path()
+        db_path = Path(path) if path else self._db_path(source.month)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         if db_path.exists():
             log.warning("File %s already exists; removing it.", db_path)
@@ -650,6 +705,7 @@ class RFBData:
             print(f"Building SQLite database: {db_path}")
         log.info("SQLite output: %s", db_path)
         started = time.time()
+        stamp_value = source.month if (cfg.stamp.enabled and cfg.stamp.column) else None
         rows = sqlite_loader.load_tables(
             db_path,
             self.unzip_dir,
@@ -661,6 +717,7 @@ class RFBData:
             memory_limit=_optional(cfg.sqlite.duckdb_memory_limit),
             temp_directory=self._temp_dir(),
             null_padding=bool(cfg.sqlite.duckdb_null_padding),
+            stamp_value=stamp_value,
             show_progress=bool(cfg.sqlite.show_progress),
         )
         if cfg.leitura.remove_extracted_after_use:
@@ -672,6 +729,8 @@ class RFBData:
             cfg.sqlite.final_pragmas,
             show_progress=bool(cfg.sqlite.show_progress),
         )
+        if cfg.stamp.enabled:
+            sqlite_loader.write_metadata(db_path, self._stamp_dict(source))
         files = {}
         try:
             files[db_path.name] = db_path.stat().st_size
@@ -684,29 +743,44 @@ class RFBData:
             establishment_count=count,
             elapsed=time.time() - started,
             files=files,
+            source=source,
         )
         if print_report:
             print(result.format())
         return result
 
-    def to_parquet(self, path=None, print_report=True) -> LoadResult:
+    def to_parquet(self, path=None, print_report=True, source_month=None) -> LoadResult:
         """Load the extracted CSVs into one parquet file per table.
 
-        Prints a summary (output path, tables, rows, file sizes, time) unless
-        ``print_report=False``.
+        Each file is stamped with its RFB source (embedded parquet key/value
+        metadata) and a ``_rfb_metadata.json`` sidecar is written next to them.
+        Prints a summary unless ``print_report=False``; pass ``source_month``
+        to stamp a month when no discovery ran.
         """
 
         cfg = self.config
+        source = self._effective_source(source_month)
         code_tables, big_tables = self._build_tables()
         self._ensure(self.unzip_dir)
 
         out_dir = Path(path) if path else self.parquet_dir
+        if cfg.stamp.enabled and cfg.stamp.month_subdir and source.month:
+            out_dir = out_dir / source.month
         out_dir.mkdir(parents=True, exist_ok=True)
 
         if print_report:
             print(f"Writing parquet files to: {out_dir}")
         log.info("Parquet output: %s", out_dir)
         started = time.time()
+        stamp_value = source.month if (cfg.stamp.enabled and cfg.stamp.column) else None
+        stamp_dict = self._stamp_dict(source)
+        kv_metadata = {
+            "rfbpy_version": stamp_dict.get("rfbpy_version"),
+            "rfb_source_month": stamp_dict.get("source_month"),
+            "rfb_source_url": stamp_dict.get("source_url"),
+            "rfb_listed_at": stamp_dict.get("listed_at"),
+            "rfb_generated_at": stamp_dict.get("generated_at"),
+        } if cfg.stamp.enabled else None
         rows = parquet_loader.load_tables(
             out_dir,
             self.unzip_dir,
@@ -719,10 +793,15 @@ class RFBData:
             memory_limit=_optional(cfg.sqlite.duckdb_memory_limit),
             temp_directory=self._temp_dir(),
             null_padding=bool(cfg.sqlite.duckdb_null_padding),
+            stamp_value=stamp_value,
+            metadata=kv_metadata,
             show_progress=bool(cfg.sqlite.show_progress),
         )
         if cfg.leitura.remove_extracted_after_use:
             sqlite_loader.remove_source_files(self.unzip_dir, code_tables, big_tables)
+
+        if cfg.stamp.enabled:
+            write_sidecar(out_dir, stamp_dict)
 
         files = {}
         for table in rows:
@@ -739,6 +818,7 @@ class RFBData:
             establishment_count=rows.get("estabelecimento"),
             elapsed=time.time() - started,
             files=files,
+            source=source,
         )
         if print_report:
             print(result.format())

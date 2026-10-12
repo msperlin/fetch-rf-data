@@ -70,20 +70,25 @@ def read_csv_sql(source, columns, separator=";", encoding="latin-1", null_paddin
     )
 
 
-def code_table_query(table, source, separator, encoding, null_padding):
+def code_table_query(table, source, separator, encoding, null_padding, stamp=None):
     """SQL ``SELECT`` producing a code table from ``source``."""
 
     read = read_csv_sql(source, ["codigo", "descricao"], separator, encoding, null_padding)
-    return f'SELECT "codigo", "descricao"\nFROM {read}'
+    items = ['"codigo"', '"descricao"']
+    if stamp is not None:
+        items.append(f"{sql_str(stamp)} AS source_month")
+    return f"SELECT {', '.join(items)}\nFROM {read}"
 
 
-def big_table_query(table, source, separator, encoding, null_padding):
+def big_table_query(table, source, separator, encoding, null_padding, stamp=None):
     """SQL ``SELECT`` producing a big table from ``source``."""
 
     read = read_csv_sql(source, table.columns, separator, encoding, null_padding)
     # na_filter=False keeps empty fields as '' (not NULL).
     items = [f'coalesce("{col}", \'\') AS "{col}"' for col in table.selected]
     items += [f"{expr} AS {sql_str(name)}" for name, expr in table.derived]
+    if stamp is not None:
+        items.append(f"{sql_str(stamp)} AS source_month")
     sql = f"SELECT {', '.join(items)}\nFROM {read}"
     if table.where:
         sql += f"\nWHERE {table.where}"
