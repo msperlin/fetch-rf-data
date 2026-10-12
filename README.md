@@ -1,8 +1,8 @@
 # RFBpy
 
 [![CI](https://github.com/msperlin/rfbpy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/msperlin/rfbpy/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/rfbpy.svg)](https://pypi.org/project/rfbpy/)
-[![Python versions](https://img.shields.io/pypi/pyversions/rfbpy.svg)](https://pypi.org/project/rfbpy/)
+[![PyPI](https://img.shields.io/pypi/v/rfbpy.svg?cacheSeconds=3600)](https://pypi.org/project/rfbpy/)
+[![Python versions](https://img.shields.io/pypi/pyversions/rfbpy.svg?cacheSeconds=3600)](https://pypi.org/project/rfbpy/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **RFBpy** downloads, extracts and loads the open **CNPJ** (Brazilian company registry)
