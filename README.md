@@ -1,6 +1,9 @@
 # RFBpy
 
 [![CI](https://github.com/msperlin/rfbpy/actions/workflows/ci.yml/badge.svg)](https://github.com/msperlin/rfbpy/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/rfbpy.svg)](https://pypi.org/project/rfbpy/)
+[![Python versions](https://img.shields.io/pypi/pyversions/rfbpy.svg)](https://pypi.org/project/rfbpy/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **RFBpy** downloads, extracts and loads the open **CNPJ** (Brazilian company registry)
 data published by the Receita Federal, into **SQLite** or a **parquet** folder.
@@ -262,6 +265,29 @@ uv sync --extra dev
 
 The tests are offline: network access is mocked and DuckDB's SQLite extension
 tests are skipped when it is unavailable.
+
+### Releasing
+
+Releases are published to PyPI by `.github/workflows/release.yml` using
+[trusted publishing](https://docs.pypi.org/trusted-publishers/) (OIDC, no
+tokens). The package version comes from `__version__` in
+`src/rfbpy/__init__.py` (via hatch's dynamic version), so:
+
+1. Bump `__version__`, commit and push to `main`.
+2. Tag and push:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+The workflow builds the sdist/wheel, smoke-tests them in an isolated
+environment, checks the tag matches `__version__`, and publishes to PyPI.
+Use **Actions → Release → Run workflow** (with the `testpypi` input) to publish
+to TestPyPI first.
+
+One-time setup: add a *pending trusted publisher* on PyPI for project `rfbpy`
+(owner `msperlin`, repo `rfbpy`, workflow `release.yml`, environment `pypi`),
+and create the matching `pypi` environment in the GitHub repository settings.
 
 ## License
 
