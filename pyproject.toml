@@ -44,9 +44,9 @@ dev = [
 rfbpy = "rfbpy.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/msperlin/fetch-rf-data"
-Repository = "https://github.com/msperlin/fetch-rf-data"
-Issues = "https://github.com/msperlin/fetch-rf-data/issues"
+Homepage = "https://github.com/msperlin/rfbpy"
+Repository = "https://github.com/msperlin/rfbpy"
+Issues = "https://github.com/msperlin/rfbpy/issues"
 
 [tool.hatch.version]
 path = "src/rfbpy/__init__.py"
