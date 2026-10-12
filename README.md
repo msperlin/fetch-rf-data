@@ -207,6 +207,12 @@ The CLI reads `--config`, then `$RFB_CONFIG`, then `./config.toml`.
 
 ## Notes
 
+- **Resumable downloads.** Files are written to a `.part` and only renamed
+  after they pass verification (size, and zip validity when `verify_zip=True`),
+  so a partial file is never accepted. Interrupted or failed transfers keep the
+  `.part` and are resumed with an HTTP `Range` request on the next attempt or the
+  next call to `download()`; if the server ignores `Range`, the file restarts
+  safely. Set `resume=False` (CLI `--no-resume`) to disable.
 - **Flaky WebDAV.** The share sits behind a load balancer whose nodes sometimes
   answer `PROPFIND` with an empty `HTTP 200` (or reset the connection) instead of
   the expected `207 Multistatus`. Directory listing is retried until a valid
