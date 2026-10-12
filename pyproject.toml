@@ -1,16 +1,59 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
 [project]
-name = "fetch-rf-data"
-version = "0.1.0"
-description = "Baixa, descompacta e carrega os dados públicos de CNPJ da Receita Federal em SQLite"
+name = "rfbpy"
+dynamic = ["version"]
+description = "Download, extract and load the Receita Federal open CNPJ data into SQLite or parquet"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Marcelo Perlin" },
+]
+keywords = ["cnpj", "receita-federal", "brazil", "open-data", "sqlite", "parquet", "duckdb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+]
 dependencies = [
     "beautifulsoup4>=4.12",
     "duckdb>=1.5.6",
     "lxml>=6.0.2",
-    "pandas>=2.3.3",
     "requests>=2.32.5",
-    "sqlalchemy>=2.0.45",
-    "toml>=0.10.2",
     "tqdm>=4.67.1",
+    "tomli>=2.0; python_version < '3.11'",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+]
+
+[project.scripts]
+rfbpy = "rfbpy.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/msperlin/rfbpy"
+Repository = "https://github.com/msperlin/rfbpy"
+Issues = "https://github.com/msperlin/rfbpy/issues"
+
+[tool.hatch.version]
+path = "src/rfbpy/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rfbpy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

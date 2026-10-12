@@ -1,9 +1,11 @@
 """WebDAV access to the Receita Federal public CNPJ share.
 
-The RFB open-data site is a Nextcloud public share. Files live in monthly
+The RFB open-data site is a Nextcloud public share.  Files live in monthly
 folders (``YYYY-MM``) and are exposed through WebDAV, which gives us file
 sizes, ETags and HTTP Range support (needed for resumable downloads).
 """
+
+from __future__ import annotations
 
 import logging
 import random
@@ -18,17 +20,16 @@ import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
-from fcts.downloads import ConfigError
+from .errors import ConfigError, ShareAccessError
 
-USER_AGENT = "fetch-cnpj/1.0"
+USER_AGENT = "rfbpy/1.0"
 
 # The Receita Federal share sits behind a load balancer whose nodes do not all
 # serve the public WebDAV share: PROPFIND from a bad node comes back as an
 # empty ``HTTP 200`` (no DAV body, "Connection: close") or a connection reset
-# instead of the expected ``207 Multistatus``. After roughly 20 seconds of
+# instead of the expected ``207 Multistatus``.  After roughly 20 seconds of
 # retrying, a good node is reached and answers with the XML while setting
-# keep-alive + session cookies, so the rest of the session works. Retry until a
-# real multistatus response is received.
+# keep-alive + session cookies, so the rest of the session works.
 PROPFIND_ATTEMPTS = 30
 PROPFIND_RETRY_DELAY = 2.0
 
@@ -36,9 +37,7 @@ _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 
 _thread_local = threading.local()
 
-
-class ShareAccessError(RuntimeError):
-    """Raised when the public share cannot be read (e.g. token changed)."""
+log = logging.getLogger("rfbpy")
 
 
 class _Interrupted(Exception):
@@ -103,10 +102,6 @@ def _propfind(session, url, timeout, attempts=PROPFIND_ATTEMPTS, retry_delay=PRO
 
     Returns a list of dicts with ``href``, ``is_collection``, ``size``,
     ``last_modified`` and ``etag``.
-
-    Some load-balanced nodes answer PROPFIND with an empty ``HTTP 200`` (no DAV
-    body) instead of ``207 Multistatus``; retrying until a real multistatus is
-    seen is required, otherwise discovery silently finds nothing.
     """
 
     last_status = None
@@ -123,7 +118,7 @@ def _propfind(session, url, timeout, attempts=PROPFIND_ATTEMPTS, retry_delay=PRO
             if status in (401, 403, 404):
                 raise ShareAccessError(
                     f"Could not read the public share (HTTP {status}) at {url}. "
-                    "The share URL/token may have changed: update [urls] in config.toml."
+                    "The share URL/token may have changed."
                 ) from exc
             last_error = exc
             detail = f"HTTP error: {exc}"
@@ -140,7 +135,7 @@ def _propfind(session, url, timeout, attempts=PROPFIND_ATTEMPTS, retry_delay=PRO
             detail = f"HTTP {resp.status_code}, {len(body)} bytes"
 
         if attempt < attempts:
-            logging.warning(
+            log.warning(
                 "PROPFIND attempt %d/%d did not return a WebDAV body at %s (%s); "
                 "retrying in %.1f s",
                 attempt,
@@ -185,12 +180,12 @@ def _resolve_folder(session, base_url, month, timeout):
         ]
         if months:
             folder = urljoin(base_url, sorted(months)[-1] + "/")
-            logging.info("Using latest folder: %s", folder)
+            log.info("Using latest folder: %s", folder)
             return folder, _propfind(session, folder, timeout)
         return base_url, entries
 
     folder = urljoin(base_url, str(month).strip("/") + "/")
-    logging.info("Using folder: %s", folder)
+    log.info("Using folder: %s", folder)
     return folder, _propfind(session, folder, timeout)
 
 
@@ -204,11 +199,45 @@ def get_all_links(
     read_timeout=None,
     user_agent=None,
 ):
-    """List matching ``.zip`` files as dicts with url/name/size/etag.
+    """List the ``.zip`` files matching ``desired_files``.
+
+    Kept for convenience; :func:`list_files` + :func:`match_files` give access
+    to the matched files and the unmatched requested entries separately.
+    """
+
+    files = list_files(
+        base_url,
+        request_timeout,
+        auth=auth,
+        month=month,
+        connect_timeout=connect_timeout,
+        read_timeout=read_timeout,
+        user_agent=user_agent,
+    )
+    matched, _unmatched = match_files(files, desired_files)
+    if not matched:
+        log.warning("No files matched the desired list.")
+        return []
+
+    log.info("Matched %d files:", len(matched))
+    for f in matched:
+        log.info("  %s (%s bytes)", f["name"], f["size"])
+    return matched
+
+
+def list_files(
+    base_url,
+    request_timeout,
+    auth=None,
+    month="latest",
+    connect_timeout=None,
+    read_timeout=None,
+    user_agent=None,
+):
+    """List every ``.zip`` file in the folder (no filtering), smallest first.
 
     ``month`` may be ``"latest"`` (default), a specific ``YYYY-MM`` folder, or
-    empty to read ``base_url`` directly. ``desired_files`` are matched
-    case-insensitively as substrings of the file name.
+    empty to read ``base_url`` directly.
     """
 
     if not base_url:
@@ -216,7 +245,7 @@ def get_all_links(
 
     session = _get_session(auth, user_agent)
     timeout = _timeout(request_timeout, connect_timeout, read_timeout)
-    folder, entries = _resolve_folder(session, base_url, month, timeout)
+    _folder, entries = _resolve_folder(session, base_url, month, timeout)
 
     files = []
     for entry in entries:
@@ -228,7 +257,7 @@ def get_all_links(
         name = unquote(Path(urlparse(href).path).name)
         files.append(
             {
-                "url": urljoin(folder, href),
+                "url": urljoin(_folder, href),
                 "name": name,
                 "size": entry["size"],
                 "last_modified": entry["last_modified"],
@@ -236,23 +265,39 @@ def get_all_links(
             }
         )
 
-    logging.info("Found %d zip files", len(files))
-
-    wanted = [str(d).lower() for d in (desired_files or [])]
-    filtered = [f for f in files if any(w in f["name"].lower() for w in wanted)]
-
-    if not filtered:
-        logging.warning("No files matched the desired list.")
-        return []
-
     # Small files first so useful lookup tables arrive early.
-    filtered.sort(key=lambda f: (f["size"] if f["size"] is not None else 0))
+    files.sort(key=lambda f: (f["size"] if f["size"] is not None else 0))
+    log.info("Found %d zip files", len(files))
+    return files
 
-    logging.info("Matched %d files:", len(filtered))
-    for f in filtered:
-        logging.info("  %s (%s bytes)", f["name"], f["size"])
 
-    return filtered
+def match_files(files, desired_files):
+    """Split ``files`` into ``(matched, unmatched)`` for ``desired_files``.
+
+    Requested entries are matched case-insensitively as substrings of the file
+    names.  ``unmatched`` keeps the requested strings that matched no file.
+    """
+
+    wanted = [
+        (str(d), str(d).strip().lower())
+        for d in (desired_files or [])
+        if str(d).strip()
+    ]
+    matched = []
+    unmatched = []
+    seen = set()
+    for original, needle in wanted:
+        hits = [f for f in files if needle in f["name"].lower()]
+        if not hits:
+            unmatched.append(original)
+            continue
+        for hit in hits:
+            if hit["name"] not in seen:
+                seen.add(hit["name"])
+                matched.append(hit)
+
+    matched.sort(key=lambda f: (f.get("size") if f.get("size") is not None else 0))
+    return matched, unmatched
 
 
 def download_with_retries(
@@ -275,7 +320,7 @@ def download_with_retries(
 ):
     """Download ``url`` into ``dir_zip`` with retries and resume support.
 
-    Returns ``True`` on success and ``False`` after all attempts fail. Partial
+    Returns ``True`` on success and ``False`` after all attempts fail.  Partial
     ``.part`` files are kept between attempts (and on failure) so a later run
     can resume via an HTTP Range request.
     """
@@ -294,16 +339,16 @@ def download_with_retries(
             if expected_size is not None:
                 if resume_from == expected_size:
                     temp.replace(target)
-                    logging.info("Resumed completed file: %s", target.name)
+                    log.info("Resumed completed file: %s", target.name)
                     return True
                 if resume_from > expected_size:
-                    logging.warning("Discarding oversized partial file: %s", temp.name)
+                    log.warning("Discarding oversized partial file: %s", temp.name)
                     temp.unlink()
                     resume_from = 0
 
         headers = {"Range": f"bytes={resume_from}-"} if resume_from else {}
         try:
-            logging.info(
+            log.info(
                 "Downloading (%d/%d): %s%s",
                 attempt,
                 attempts,
@@ -351,19 +396,19 @@ def download_with_retries(
                 raise IOError("downloaded file is not a valid zip archive")
 
             temp.replace(target)
-            logging.info("Saved: %s", target)
+            log.info("Saved: %s", target)
             return True
 
         except _Interrupted:
-            logging.warning("Interrupted, keeping partial file: %s", temp.name)
+            log.warning("Interrupted, keeping partial file: %s", temp.name)
             raise
         except Exception as exc:
             response = getattr(exc, "response", None)
             status = response.status_code if response is not None else None
-            logging.warning("Attempt %d failed for %s: %s", attempt, filename, exc)
+            log.warning("Attempt %d failed for %s: %s", attempt, filename, exc)
 
             if status is not None and 400 <= status < 500 and status not in (408, 429):
-                logging.error("Giving up on %s (HTTP %s)", filename, status)
+                log.error("Giving up on %s (HTTP %s)", filename, status)
                 break
 
             if attempt < attempts:
@@ -375,8 +420,8 @@ def download_with_retries(
                             delay = max(delay, float(retry_after))
                         except ValueError:
                             pass
-                logging.info("Retrying %s in %.1f s", filename, delay)
+                log.info("Retrying %s in %.1f s", filename, delay)
                 time.sleep(delay)
 
-    logging.error("Failed to download after %d attempts: %s", attempts, filename)
+    log.error("Failed to download after %d attempts: %s", attempts, filename)
     return False

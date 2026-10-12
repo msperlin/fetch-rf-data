@@ -1,172 +1,239 @@
-# Processamento de Dados Públicos de CNPJ do Brasil
+# RFBpy
 
-Este projeto fornece um conjunto de scripts Python para baixar, descompactar, limpar e carregar dados públicos de empresas brasileiras (CNPJ) da Receita Federal em um banco de dados SQLite.
+**RFBpy** downloads, extracts and loads the open **CNPJ** (Brazilian company registry)
+data published by the Receita Federal, into **SQLite** or a **parquet** folder.
 
-## Funcionalidades
+It replaces the old set of numbered scripts with a single object — `RFBData` — that
+owns all the error handling and the decision of what still needs to be downloaded.
 
-- Baixa os arquivos de dados CNPJ mais recentes do site oficial da Receita Federal.
-- Descompacta os arquivos baixados.
-- Limpa e processa os dados.
-- Carrega os dados em um banco de dados SQLite.
-- Cria índices para consultas mais rápidas.
-- Fornece exemplos de consultas SQL.
-- Configuração através de um arquivo `config.toml`.
+- Discovers the monthly folders on the public Nextcloud/WebDAV share.
+- Downloads only what is missing or out of date (size + ETag check), with retries,
+  backoff and resumable `.part` files.
+- Extracts the archives idempotently and guards against Zip Slip.
+- Loads the CSVs into a SQLite database (via DuckDB) or into one parquet file per table.
+- Works around the share's flaky load balancer and the occasional non-latin-1 bytes.
 
-## Pré-requisitos
-
-- Python 3.10+
-- [uv](https://github.com/astral-sh/uv)
-
-## Instalação com uv
-
-1. Instale o `uv` em seu sistema. Instruções podem ser encontradas [aqui](https://github.com/astral-sh/uv#installation).
-
-2. Clone este repositório:
-   ```bash
-   git clone https://github.com/msperlin/fetch-rf-data.git
-   ```
-3. Navegue até o diretório do projeto:
-   ```bash
-   cd fetch-rf-data
-   ```
-4. Crie o ambiente virtual e instale as dependências:
-   ```bash
-   uv sync
-   ```
-5. Ative o ambiente virtual
-   ```bash
-   source .venv/bin/activate
-   ```
-   
-Opcionalmente, para rodar os comandos python diretamente, use `uv run`:
-
-   ```bash
-   uv run python 01_download-zip-files.py
-   ```
-   
-## Configuração
-
-O projeto é configurado através do arquivo `config.toml`. Aqui estão as principais configurações:
-
-- **[dirs]**:
-  - `processing_dir`: O diretório principal para armazenar os arquivos baixados, descompactados e o banco de dados.
-  - `zip_dir`, `unzip_dir`, `sqlite_dir`: Nomes das subpastas de trabalho criadas dentro de `processing_dir`.
-
-- **[urls]**:
-  - `base_url`: A URL WebDAV da pasta do compartilhamento público do CNPJ na Receita Federal.
-  - `share_token`: O token do compartilhamento público (necessário para acesso WebDAV). Pode ser sobrescrito pela variável de ambiente `RFB_SHARE_TOKEN`.
-  - `month`: `"latest"` (pasta mais recente) ou uma pasta específica, por exemplo `"2026-08"`.
-
-- **[downloads]**:
-  - `max_concurrent_downloads`: O número de downloads simultâneos.
-  - `request_timeout`: O tempo limite geral das requisições (usado quando os específicos não são definidos).
-  - `connect_timeout` / `read_timeout`: Timeouts separados de conexão e leitura por chunk (opcionais).
-  - `max_attempts`: Número de tentativas por arquivo.
-  - `backoff`: Base do backoff exponencial (com jitter) entre tentativas.
-  - `large_file_threshold_mb`: Arquivos acima deste tamanho formam uma segunda fase, com pool próprio.
-  - `max_large_downloads`: Downloads simultâneos para os arquivos grandes.
-  - `resume`: Retoma downloads parciais (`.part`) via HTTP Range.
-  - `verify_zip`: Confere se o arquivo baixado é um zip válido.
-  - `user_agent`: User-Agent enviado nas requisições WebDAV.
-
-- **[arquivos]**:
-  - `files_to_download`: Uma lista de arquivos para baixar. Também define quais
-    tabelas o script `03_load-to-sqlite.py` carrega: apenas as que têm origem em
-    um item desta lista (ex.: sem `Socios`, a tabela `socios` não é criada).
-
-- **[unzip]**:
-  - `skip_existing`: Pula arquivos `.zip` cujos membros já foram extraídos (extração idempotente).
-  - `remove_zip_after_extract`: Apaga o arquivo `.zip` depois de extrair com sucesso.
-
-- **[leitura]**:
-  - `chunksize`: O número de linhas a serem lidas dos arquivos CSV por vez.
-  - `remove_extracted_after_use`: Remove os arquivos extraídos depois de carregá-los no banco.
-  - `encoding`, `separator`: Codificação e separador dos CSVs publicados pela Receita Federal.
-
-- **[sqlite]**:
-  - `backend`: `"duckdb"` (padrão, rápido) ou `"sqlite"` (legado com pandas + SQLAlchemy).
-  - `db_filename`, `db_date_format`: Nome do banco de saída (o `{date}` é substituído pela data de execução).
-  - `load_pragmas`, `final_pragmas`: PRAGMAs de performance aplicados durante e ao final da carga.
-  - `duckdb_threads`, `duckdb_memory_limit`, `duckdb_temp_dir`, `duckdb_null_padding`: ajustes do DuckDB (usados quando `backend = "duckdb"`).
-  - `show_progress`: exibe barras de progresso (tabelas, percentual de cada tabela e índices) e mensagens durante a carga. Padrão: `true`.
-
-- **[colunas]**:
-  - `*_cols`: Os nomes das colunas para cada tipo de dado.
-  - `*_cols_to_drop`: As colunas a serem removidas durante o processo de limpeza.
-
-## Uso
-
-Os scripts são projetados para serem executados em uma ordem específica:
-
-1. **Baixar os dados:**
-   ```bash
-   python 01_download-zip-files.py
-   ```
-   Este script irá baixar os arquivos especificados no `config.toml` para o diretório definido em `processing_dir`.
-
-   Opções úteis:
-   ```bash
-   python 01_download-zip-files.py --list-months          # lista as pastas mensais disponíveis
-   python 01_download-zip-files.py --dry-run              # mostra o que seria baixado
-   python 01_download-zip-files.py --only Cnaes,Paises    # baixa apenas alguns arquivos
-   python 01_download-zip-files.py --month 2026-08        # escolhe uma pasta mensal específica
-   python 01_download-zip-files.py --jobs 6 --force       # mais paralelismo, re-baixa tudo
-   ```
-
-   O script é idempotente: arquivos já completos são ignorados (comparando o
-   tamanho local com o remoto e o ETag). Downloads interrompidos deixam um
-   arquivo `.part` e são retomados na próxima execução. Um resumo e um código
-   de saída não-zero (quando algo falha) são fornecidos ao final.
-
-   > **Nota sobre o WebDAV da Receita:** o compartilhamento fica atrás de um
-   > balanceador cujos nós, às vezes, respondem ao `PROPFIND` com um `HTTP 200`
-   > vazio (ou resetam a conexão) em vez do `207 Multistatus` esperado. Por
-   > isso a listagem de pastas é repetida com espera até obter uma resposta
-   > válida (o que costuma levar ~20 s). Sem isso, o script encontrava "nenhuma
-   > pasta mensal" e não baixava nada.
-
-2. **Descompactar os arquivos:**
-   ```bash
-   python 02_unzip-files.py
-   ```
-   Este script irá descompactar todos os arquivos `.zip` do diretório de arquivos compactados para o diretório de arquivos descompactados.
-
-3. **Carregar os dados no SQLite:**
-   ```bash
-   python 03_load-to-sqlite.py
-   ```
-   Este script irá carregar os dados descompactados em um banco de dados SQLite. O arquivo do banco de dados será criado no diretório especificado em `processing_dir`. Só são carregadas as tabelas correspondentes aos arquivos presentes em `[arquivos].files_to_download`.
-
-   Por padrão a carga usa **DuckDB** (`[sqlite].backend = "duckdb"`), que lê todos os arquivos de cada tipo de uma vez (em paralelo) e escreve direto no SQLite — bem mais rápido que a rota antiga com pandas. O backend legado continua disponível com `backend = "sqlite"`. Na primeira execução o DuckDB baixa a extensão `sqlite` (requer internet uma vez).
-
-   Os arquivos da Receita são `latin1`. Ocasionalmente alguns arquivos grandes trazem bytes de controle da faixa `0x80–0x9F`, que o leitor latin-1 do DuckDB recusa (`File is not latin-1 encoded`). Quando isso acontece, o script cria uma cópia temporária do arquivo trocando esses bytes por espaço, recarrega e apaga a cópia — os arquivos originais não são alterados.
-
-## Banco de Dados
-
-O banco de dados SQLite contém as seguintes tabelas:
-
-- `estabelecimento`: Informações detalhadas sobre cada estabelecimento (local da empresa).
-- `empresas`: Informações gerais sobre cada empresa.
-- `socios`: Informações sobre os sócios de cada empresa.
-- `cnae`: Códigos e descrições de atividades econômicas.
-- `motivo`: Códigos e descrições de motivos de situação cadastral.
-- `municipio`: Códigos e descrições de municípios.
-- `natureza`: Códigos e descrições de naturezas jurídicas.
-- `pais`: Códigos e descrições de países.
-- `qualificacao`: Códigos e descrições de qualificações de sócios.
-
-Índices são criados nas colunas `cnpj` e `cnpj_basico` para acelerar as consultas.
-
-
-## Testes
-
-Os testes unitários (descoberta de arquivos, retomada, validação de
-integridade e metadados) não dependem de rede:
+## Installation
 
 ```bash
-python -m unittest discover -s tests -t . -v
+pip install rfbpy
 ```
 
-## Licença
+or, with [uv](https://github.com/astral-sh/uv):
 
-Este projeto está licenciado sob a Licença MIT. Consulte o arquivo [LICENSE](LICENSE) para obter detalhes.
+```bash
+uv add rfbpy
+```
+
+Requires Python 3.10+.
+
+## Quick start
+
+```python
+from rfbpy import RFBData
+
+rfb = RFBData(
+    processing_dir="~/Desktop/rfb_processing",
+    files_to_download=["Cnaes.zip", "Estabelecimentos", "Empresas"],
+)
+
+rfb.list_months()      # -> ["2026-07", "2026-08", ...]
+rfb.check()            # prints a summary (returns the CheckReport too)
+
+rfb.download()         # downloads only what is missing, with resume + retries
+rfb.unzip()            # idempotent extraction
+rfb.to_sqlite()        # -> LoadResult(path=.../20261012_RF-CNPJ-database.db)
+rfb.to_parquet()       # -> LoadResult(path=.../04_parquet_files)
+```
+
+`check()` prints something like:
+
+```
+RFB CNPJ — check
+  Share      : https://arquivos.receitafederal.gov.br/public.php/webdav/Dados/Cadastros/CNPJ/
+  Month      : latest
+  Zip folder : /home/me/Desktop/rfb_processing/01_zip-files
+
+  Files offered : 3
+  Up to date    : 1
+  To download   : 2
+
+  Pending files:
+    - Motivos.zip      1.2 KB
+    - Cnaes.zip       21.6 KB
+
+  Download need : 22.8 KB (total 25.4 KB)
+  Disk free     : 15.5 GB  [ok]
+```
+
+Pass `print_report=False` to suppress the output and use the returned object programmatically.
+
+Or run the whole pipeline in one call:
+
+```python
+result = rfb.run(destination="parquet")   # or destination="sqlite"
+print(result.download.downloaded)
+print(result.load.tables)                 # {'cnae': 1, 'estabelecimento': 2500000, ...}
+```
+
+### Selecting files
+
+```python
+rfb.download(only="Cnaes,Paises")   # comma-separated substrings
+rfb.download(only=["Empresas"])     # or a list
+rfb.download(month="2026-08")       # a specific folder instead of "latest"
+rfb.download(force=True)            # re-download everything
+rfb.download(dry_run=True)          # just report what would be downloaded
+```
+
+If an entry in `files_to_download` (or in `only=`) matches no file on the share,
+discovery fails with `UnavailableFilesError` listing the missing entries, the
+files that *are* available, and how to fix it — so typos fail loudly instead of
+silently downloading nothing. Entries are matched case-insensitively as
+substrings of the remote file names (`"Socios"` matches `Socios0.zip …`).
+
+### Reading the result
+
+```python
+report = rfb.check()
+report.to_download    # list[FileInfo] still missing
+report.up_to_date     # list[FileInfo] already present
+report.needed_bytes   # bytes still to download
+report.enough_disk    # needed_bytes <= free_bytes
+```
+
+## Configuration
+
+Every option that used to live in `config.toml` can be passed straight to the
+constructor:
+
+```python
+rfb = RFBData(
+    processing_dir="~/Desktop/rfb_processing",
+    zip_dir="01_zip-files",
+    unzip_dir="02_unzipped_files",
+    sqlite_dir="03_sqlite_file",
+    parquet_dir="04_parquet_files",
+
+    base_url="https://arquivos.receitafederal.gov.br/public.php/webdav/Dados/Cadastros/CNPJ/",
+    share_token="gn672Ad4CF8N6TK",     # or set RFB_SHARE_TOKEN
+    month="latest",
+
+    files_to_download=["Cnaes.zip", "Estabelecimentos", "Empresas"],
+
+    max_concurrent_downloads=3,
+    request_timeout=15,
+    connect_timeout=10,
+    read_timeout=60,
+    max_attempts=3,
+    backoff=2,
+    large_file_threshold_mb=100,
+    max_large_downloads=2,
+    resume=True,
+    verify_zip=True,
+    user_agent="rfbpy/1.0",
+
+    skip_existing=True,
+    remove_zip_after_extract=False,
+    remove_extracted_after_use=False,
+    encoding="latin1",
+    separator=";",
+
+    duckdb_threads=0,
+    duckdb_memory_limit="0",
+    duckdb_temp_dir="",
+    duckdb_null_padding=False,
+    show_progress=True,
+    db_filename="{date}_RF-CNPJ-database.db",
+    db_date_format="%Y%m%d",
+
+    parquet_compression="zstd",
+)
+```
+
+You can also use the grouped dataclasses (`dirs=`, `urls=`, `downloads=`,
+`arquivos=`, `unzip=`, `leitura=`, `sqlite=`, `parquet=`, `colunas=`), pass a
+whole `RFBConfig`, or load an existing file:
+
+```python
+rfb = RFBData.from_toml("examples/config.toml")
+```
+
+See [`examples/config.toml`](examples/config.toml) for the full template. Unknown
+keys from older configs are ignored with a warning. `RFB_SHARE_TOKEN` overrides
+`share_token`.
+
+## Outputs
+
+### SQLite
+
+`to_sqlite()` writes a database with the tables:
+
+| Table | Contents |
+|---|---|
+| `estabelecimento` | Each establishment (address, CNAE, situation…), with a derived `cnpj` |
+| `empresas` | Company-level data |
+| `socios` | Partners (when `Socios` is enabled) |
+| `cnae`, `motivo`, `municipio`, `natureza`, `pais`, `qualificacao` | Lookup code tables |
+
+Only the tables whose files are in `files_to_download` are created. Indexes are
+created on `cnpj`/`cnpj_basico` and `ANALYZE` is run at the end. Canceled
+establishments (`situacao_cadastral == "08"`) are dropped.
+
+### Parquet
+
+`to_parquet()` writes `<parquet_dir>/<table>.parquet` (Zstandard by default), one
+file per table, with the same cleaning applied. Read them with DuckDB, pandas or
+polars:
+
+```python
+import duckdb
+duckdb.sql("SELECT uf, count(*) FROM 'parquet/*.parquet' GROUP BY 1").show()
+```
+
+## Command line
+
+```bash
+rfbpy --config examples/config.toml months
+rfbpy --config examples/config.toml check
+rfbpy --config examples/config.toml download --dry-run
+rfbpy --config examples/config.toml download --jobs 6
+rfbpy --config examples/config.toml unzip
+rfbpy --config examples/config.toml load --dest parquet
+rfbpy --config examples/config.toml run --dest sqlite
+```
+
+The CLI reads `--config`, then `$RFB_CONFIG`, then `./config.toml`.
+
+## Notes
+
+- **Resumable downloads.** Files are written to a `.part` and only renamed
+  after they pass verification (size, and zip validity when `verify_zip=True`),
+  so a partial file is never accepted. Interrupted or failed transfers keep the
+  `.part` and are resumed with an HTTP `Range` request on the next attempt or the
+  next call to `download()`; if the server ignores `Range`, the file restarts
+  safely. Set `resume=False` (CLI `--no-resume`) to disable.
+- **Flaky WebDAV.** The share sits behind a load balancer whose nodes sometimes
+  answer `PROPFIND` with an empty `HTTP 200` (or reset the connection) instead of
+  the expected `207 Multistatus`. Directory listing is retried until a valid
+  response arrives (usually ~20 s).
+- **Non-latin-1 bytes.** The RFB CSVs are latin-1. Rarely, big files contain C1
+  control bytes (`0x80–0x9F`) that DuckDB's latin-1 reader rejects; a temporary
+  sanitized copy is used and removed afterwards, leaving the originals untouched.
+- **DuckDB SQLite extension.** `to_sqlite()` downloads the DuckDB `sqlite`
+  extension on first use (needs internet once). `to_parquet()` does not.
+
+## Development
+
+```bash
+uv sync --extra dev
+.venv/bin/python -m pytest
+```
+
+The tests are offline: network access is mocked and DuckDB's SQLite extension
+tests are skipped when it is unavailable.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Original downloader idea from
+[rictom/cnpj-sqlite](https://github.com/rictom/cnpj-sqlite).

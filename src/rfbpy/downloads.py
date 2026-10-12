@@ -1,8 +1,10 @@
 """Helpers for planning, validating and tracking downloads.
 
-These functions are deliberately free of network side effects so they can be
-unit-tested in isolation from the actual HTTP work done in ``webscrapping``.
+These functions have no network side effects, so they can be unit-tested in
+isolation from the HTTP work done in :mod:`rfbpy.webdav`.
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -15,38 +17,14 @@ from tqdm import tqdm
 
 METADATA_FILENAME = ".download_metadata.json"
 
-
-class ConfigError(ValueError):
-    """Raised when ``config.toml`` is missing required values."""
+log = logging.getLogger("rfbpy")
 
 
-def validate_config(config, require_files=True):
-    """Fail fast with a readable message when required config is missing."""
-
-    problems = []
-
-    dirs = config.get("dirs") or {}
-    if not dirs.get("processing_dir"):
-        problems.append("missing [dirs].processing_dir")
-
-    urls = config.get("urls") or {}
-    if not urls.get("base_url"):
-        problems.append("missing [urls].base_url")
-
-    if require_files:
-        arquivos = config.get("arquivos") or {}
-        if not arquivos.get("files_to_download"):
-            problems.append("missing [arquivos].files_to_download")
-
-    if problems:
-        raise ConfigError("Invalid config.toml: " + "; ".join(problems))
-
-
-def metadata_path(dir_zip):
+def metadata_path(dir_zip) -> Path:
     return Path(dir_zip) / METADATA_FILENAME
 
 
-def load_metadata(path):
+def load_metadata(path) -> dict:
     """Read the download metadata JSON, tolerating a missing/corrupt file."""
 
     path = Path(path)
@@ -55,12 +33,12 @@ def load_metadata(path):
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        logging.warning("Ignoring unreadable metadata file: %s", path)
+        log.warning("Ignoring unreadable metadata file: %s", path)
         return {}
     return data if isinstance(data, dict) else {}
 
 
-def save_metadata(path, data):
+def save_metadata(path, data) -> None:
     """Atomically write the download metadata JSON."""
 
     path = Path(path)
@@ -69,7 +47,7 @@ def save_metadata(path, data):
     tmp.replace(path)
 
 
-def needs_download(file_info, dir_zip, metadata, force=False):
+def needs_download(file_info, dir_zip, metadata, force=False) -> bool:
     """Return ``True`` when ``file_info`` should be (re)downloaded.
 
     A local file is considered complete only when its size matches the remote
@@ -96,7 +74,7 @@ def needs_download(file_info, dir_zip, metadata, force=False):
     return False
 
 
-def existing_bytes(dir_zip, file_info):
+def existing_bytes(dir_zip, file_info) -> int:
     """Bytes already on disk for a file (finished file or ``.part``)."""
 
     target = Path(dir_zip) / file_info["name"]
@@ -107,7 +85,7 @@ def existing_bytes(dir_zip, file_info):
     return 0
 
 
-def check_disk_space(dir_zip, files):
+def check_disk_space(dir_zip, files) -> tuple[int, int]:
     """Return ``(free_bytes, needed_bytes)`` for the planned downloads."""
 
     free = shutil.disk_usage(Path(dir_zip)).free
@@ -156,7 +134,7 @@ class Progress:
         self.close()
 
 
-def make_metadata_entry(file_info):
+def make_metadata_entry(file_info) -> dict:
     """Build the metadata record stored for a successfully downloaded file."""
 
     return {
