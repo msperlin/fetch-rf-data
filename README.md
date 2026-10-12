@@ -86,6 +86,12 @@ rfb.download(force=True)            # re-download everything
 rfb.download(dry_run=True)          # just report what would be downloaded
 ```
 
+If an entry in `files_to_download` (or in `only=`) matches no file on the share,
+discovery fails with `UnavailableFilesError` listing the missing entries, the
+files that *are* available, and how to fix it — so typos fail loudly instead of
+silently downloading nothing. Entries are matched case-insensitively as
+substrings of the remote file names (`"Socios"` matches `Socios0.zip …`).
+
 ### Reading the result
 
 ```python

@@ -178,6 +178,27 @@ def test_list_months_sorted(monkeypatch):
     assert webdav.list_months(BASE, 5) == ["2026-07", "2026-09"]
 
 
+def test_list_files_unfiltered_sorted(monkeypatch):
+    files = [
+        entry(BASE + "2026-09/Empresas0.zip", size=100),
+        entry(BASE + "2026-09/Cnaes.zip", size=20),
+        entry(BASE + "2026-09/sub", is_collection=True),
+        entry(BASE + "2026-09/layout.pdf", size=1),
+    ]
+    monkeypatch.setattr(webdav, "_propfind", lambda *a, **k: files)
+    assert [f["name"] for f in webdav.list_files(BASE, 5)] == [
+        "Cnaes.zip",
+        "Empresas0.zip",
+    ]
+
+
+def test_match_files_splits_matched_and_unmatched():
+    files = [{"name": "Cnaes.zip"}, {"name": "Empresas0.zip"}]
+    matched, unmatched = webdav.match_files(files, ["Cnaes", "Socios.zip", "Empresas"])
+    assert [f["name"] for f in matched] == ["Cnaes.zip", "Empresas0.zip"]
+    assert unmatched == ["Socios.zip"]
+
+
 def _run_download(monkeypatch, fake, tmp_path, url="http://host/a.zip", **kwargs):
     kwargs.setdefault("show_progress_bar", False)
     monkeypatch.setattr(webdav, "_get_session", lambda *a, **k: fake)

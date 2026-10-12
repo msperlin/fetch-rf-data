@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from rfbpy import RFBData, webdav
-from rfbpy.errors import ConfigError
+from rfbpy.errors import ConfigError, UnavailableFilesError
 
 
 def zip_with(name, data):
@@ -57,7 +57,7 @@ def test_list_months(rfb, monkeypatch):
 
 def test_discover_returns_fileinfo(rfb, monkeypatch):
     payload = zip_with("Cnaes.CNAECSV", "0111301;X")
-    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
     files = rfb.discover()
     assert files[0].name == "Cnaes.zip"
     assert files[0].size == len(payload)
@@ -65,7 +65,7 @@ def test_discover_returns_fileinfo(rfb, monkeypatch):
 
 def test_check_and_download(rfb, monkeypatch, capsys):
     payload = b"data"
-    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
 
     report = rfb.check()
     printed = capsys.readouterr().out
@@ -93,7 +93,7 @@ def test_check_and_download(rfb, monkeypatch, capsys):
 
 def test_check_report_format(rfb, monkeypatch):
     payload = b"data"
-    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
     report = rfb.check(print_report=False)
     text = report.format()
     assert "Month      : latest" in text
@@ -103,7 +103,7 @@ def test_check_report_format(rfb, monkeypatch):
 
 def test_download_dry_run(rfb, monkeypatch):
     payload = b"data"
-    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
     result = rfb.download(dry_run=True)
     assert result.dry_run is True
     assert result.planned == ["Cnaes.zip"]
@@ -112,7 +112,7 @@ def test_download_dry_run(rfb, monkeypatch):
 
 def test_download_reports_failure(rfb, monkeypatch):
     payload = b"data"
-    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
     monkeypatch.setattr(webdav, "download_with_retries", lambda *a, **k: False)
     result = rfb.download()
     assert result.failed == ["Cnaes.zip"]
@@ -121,7 +121,7 @@ def test_download_reports_failure(rfb, monkeypatch):
 
 def test_download_nothing_when_up_to_date(rfb, monkeypatch):
     payload = b"data"
-    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
     rfb.zip_dir.mkdir(parents=True, exist_ok=True)
     (rfb.zip_dir / "Cnaes.zip").write_bytes(payload)
 
@@ -145,7 +145,7 @@ def test_to_parquet_without_network(rfb):
 
 def test_run_end_to_end_parquet(rfb, monkeypatch):
     payload = zip_with("Cnaes.CNAECSV", "0111301;Produção de arroz")
-    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
 
     def fake_download(url, dir_zip, request_timeout, **kwargs):
         (Path(dir_zip) / kwargs["name"]).write_bytes(payload)
@@ -161,3 +161,42 @@ def test_run_end_to_end_parquet(rfb, monkeypatch):
 def test_run_rejects_unknown_destination(rfb):
     with pytest.raises(ValueError):
         rfb.run(destination="csv")
+
+
+def test_unavailable_file_raises_with_instructions(tmp_path, monkeypatch):
+    rfb = RFBData(
+        processing_dir=str(tmp_path),
+        files_to_download=["Cnaes.zip", "Socios.zip"],
+        show_progress=False,
+    )
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", b"x")])
+    with pytest.raises(UnavailableFilesError) as exc:
+        rfb.check(print_report=False)
+    message = str(exc.value)
+    assert "Socios.zip" in message
+    assert "Cnaes.zip" in message
+    assert "How to fix" in message
+    assert exc.value.unmatched == ["Socios.zip"]
+
+
+def test_only_unavailable_raises(rfb, monkeypatch):
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", b"x")])
+    with pytest.raises(UnavailableFilesError):
+        rfb.download(only="Nope")
+
+
+def test_multi_file_substring_matches(monkeypatch, tmp_path):
+    rfb = RFBData(
+        processing_dir=str(tmp_path),
+        files_to_download=["Estabelecimentos"],
+        show_progress=False,
+    )
+    files = [
+        file_entry("Estabelecimentos0.zip", b"a"),
+        file_entry("Estabelecimentos1.zip", b"bb"),
+    ]
+    monkeypatch.setattr(webdav, "list_files", lambda *a, **k: files)
+    assert [f.name for f in rfb.discover()] == [
+        "Estabelecimentos0.zip",
+        "Estabelecimentos1.zip",
+    ]

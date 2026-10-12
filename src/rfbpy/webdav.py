@@ -199,11 +199,45 @@ def get_all_links(
     read_timeout=None,
     user_agent=None,
 ):
-    """List matching ``.zip`` files as dicts with url/name/size/etag.
+    """List the ``.zip`` files matching ``desired_files``.
+
+    Kept for convenience; :func:`list_files` + :func:`match_files` give access
+    to the matched files and the unmatched requested entries separately.
+    """
+
+    files = list_files(
+        base_url,
+        request_timeout,
+        auth=auth,
+        month=month,
+        connect_timeout=connect_timeout,
+        read_timeout=read_timeout,
+        user_agent=user_agent,
+    )
+    matched, _unmatched = match_files(files, desired_files)
+    if not matched:
+        log.warning("No files matched the desired list.")
+        return []
+
+    log.info("Matched %d files:", len(matched))
+    for f in matched:
+        log.info("  %s (%s bytes)", f["name"], f["size"])
+    return matched
+
+
+def list_files(
+    base_url,
+    request_timeout,
+    auth=None,
+    month="latest",
+    connect_timeout=None,
+    read_timeout=None,
+    user_agent=None,
+):
+    """List every ``.zip`` file in the folder (no filtering), smallest first.
 
     ``month`` may be ``"latest"`` (default), a specific ``YYYY-MM`` folder, or
-    empty to read ``base_url`` directly.  ``desired_files`` are matched
-    case-insensitively as substrings of the file name.
+    empty to read ``base_url`` directly.
     """
 
     if not base_url:
@@ -211,7 +245,7 @@ def get_all_links(
 
     session = _get_session(auth, user_agent)
     timeout = _timeout(request_timeout, connect_timeout, read_timeout)
-    folder, entries = _resolve_folder(session, base_url, month, timeout)
+    _folder, entries = _resolve_folder(session, base_url, month, timeout)
 
     files = []
     for entry in entries:
@@ -223,7 +257,7 @@ def get_all_links(
         name = unquote(Path(urlparse(href).path).name)
         files.append(
             {
-                "url": urljoin(folder, href),
+                "url": urljoin(_folder, href),
                 "name": name,
                 "size": entry["size"],
                 "last_modified": entry["last_modified"],
@@ -231,23 +265,39 @@ def get_all_links(
             }
         )
 
-    log.info("Found %d zip files", len(files))
-
-    wanted = [str(d).lower() for d in (desired_files or [])]
-    filtered = [f for f in files if any(w in f["name"].lower() for w in wanted)]
-
-    if not filtered:
-        log.warning("No files matched the desired list.")
-        return []
-
     # Small files first so useful lookup tables arrive early.
-    filtered.sort(key=lambda f: (f["size"] if f["size"] is not None else 0))
+    files.sort(key=lambda f: (f["size"] if f["size"] is not None else 0))
+    log.info("Found %d zip files", len(files))
+    return files
 
-    log.info("Matched %d files:", len(filtered))
-    for f in filtered:
-        log.info("  %s (%s bytes)", f["name"], f["size"])
 
-    return filtered
+def match_files(files, desired_files):
+    """Split ``files`` into ``(matched, unmatched)`` for ``desired_files``.
+
+    Requested entries are matched case-insensitively as substrings of the file
+    names.  ``unmatched`` keeps the requested strings that matched no file.
+    """
+
+    wanted = [
+        (str(d), str(d).strip().lower())
+        for d in (desired_files or [])
+        if str(d).strip()
+    ]
+    matched = []
+    unmatched = []
+    seen = set()
+    for original, needle in wanted:
+        hits = [f for f in files if needle in f["name"].lower()]
+        if not hits:
+            unmatched.append(original)
+            continue
+        for hit in hits:
+            if hit["name"] not in seen:
+                seen.add(hit["name"])
+                matched.append(hit)
+
+    matched.sort(key=lambda f: (f.get("size") if f.get("size") is not None else 0))
+    return matched, unmatched
 
 
 def download_with_retries(

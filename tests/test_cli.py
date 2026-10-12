@@ -30,7 +30,7 @@ def test_months(tmp_path, monkeypatch, capsys):
 def test_check(tmp_path, monkeypatch, capsys):
     config = _write_config(tmp_path)
     monkeypatch.setattr(
-        "rfbpy.webdav.get_all_links",
+        "rfbpy.webdav.list_files",
         lambda *a, **k: [
             {"name": "Cnaes.zip", "url": "http://x/Cnaes.zip", "size": 10,
              "etag": "e1", "last_modified": None}
@@ -44,7 +44,7 @@ def test_check(tmp_path, monkeypatch, capsys):
 def test_download_dry_run(tmp_path, monkeypatch, capsys):
     config = _write_config(tmp_path)
     monkeypatch.setattr(
-        "rfbpy.webdav.get_all_links",
+        "rfbpy.webdav.list_files",
         lambda *a, **k: [
             {"name": "Cnaes.zip", "url": "http://x/Cnaes.zip", "size": 10,
              "etag": "e1", "last_modified": None}

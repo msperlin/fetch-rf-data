@@ -36,7 +36,7 @@ from .config import (
     normalize_files,
     override_config,
 )
-from .errors import ConfigError, DownloadError, ShareAccessError
+from .errors import ConfigError, DownloadError, ShareAccessError, UnavailableFilesError
 from .loaders import parquet as parquet_loader
 from .loaders import sqlite as sqlite_loader
 from .loaders.duck import human_size
@@ -266,31 +266,37 @@ class RFBData:
             **self._discovery_kwargs(),
         )
 
+    def _list_remote(self, only, month) -> list[dict]:
+        """List the requested remote files, erroring on unmatched requests."""
+
+        cfg = self.config
+        resolved = self._resolve_month(month)
+        files = webdav.list_files(
+            cfg.urls.base_url,
+            cfg.downloads.request_timeout,
+            month=resolved,
+            **self._discovery_kwargs(),
+        )
+        matched, unmatched = webdav.match_files(files, self._desired_files(only))
+        if unmatched:
+            raise UnavailableFilesError(
+                unmatched,
+                files,
+                month=resolved,
+                base_url=cfg.urls.base_url,
+            )
+        return matched
+
     def discover(self, only=None, month=None) -> list[FileInfo]:
         """List the remote files matching ``only`` (or the configured list)."""
 
-        cfg = self.config
-        raw = webdav.get_all_links(
-            cfg.urls.base_url,
-            self._desired_files(only),
-            cfg.downloads.request_timeout,
-            month=self._resolve_month(month),
-            **self._discovery_kwargs(),
-        )
-        return [FileInfo.from_dict(item) for item in raw]
+        return [FileInfo.from_dict(item) for item in self._list_remote(only, month)]
 
     # -- planning / checking -------------------------------------------------
 
     def _plan(self, only, month, force):
         self._ensure(self.zip_dir)
-        cfg = self.config
-        raw = webdav.get_all_links(
-            cfg.urls.base_url,
-            self._desired_files(only),
-            cfg.downloads.request_timeout,
-            month=self._resolve_month(month),
-            **self._discovery_kwargs(),
-        )
+        raw = self._list_remote(only, month)
         meta_file = dl.metadata_path(self.zip_dir)
         metadata = dl.load_metadata(meta_file)
         to_download, up_to_date = [], []

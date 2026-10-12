@@ -21,7 +21,13 @@ from .core import (
     RFBData,
     RunResult,
 )
-from .errors import ConfigError, DownloadError, RFBError, ShareAccessError
+from .errors import (
+    ConfigError,
+    DownloadError,
+    RFBError,
+    ShareAccessError,
+    UnavailableFilesError,
+)
 from .extract import ExtractResult
 
 __version__ = "0.1.0"
@@ -49,5 +55,6 @@ __all__ = [
     "ConfigError",
     "ShareAccessError",
     "DownloadError",
+    "UnavailableFilesError",
     "__version__",
 ]
