@@ -69,16 +69,18 @@ def test_from_toml(tmp_path):
     assert cfg.arquivos.files_to_download == ["Cnaes.zip"]
 
 
-def test_from_toml_ignores_removed_options(tmp_path):
+def test_from_toml_rejects_unknown_option(tmp_path):
     path = tmp_path / "config.toml"
-    path.write_text(
-        '[sqlite]\nbackend="sqlite"\nshow_progress=false\n'
-        '[leitura]\nchunksize=10\nseparator="|"\n'
-        '[unknown_section]\nx=1\n'
-    )
-    cfg = RFBConfig.from_toml(path)
-    assert cfg.sqlite.show_progress is False
-    assert cfg.leitura.separator == "|"
+    path.write_text('[leitura]\nchunksize=10\nseparator="|"\n')
+    with pytest.raises(ConfigError):
+        RFBConfig.from_toml(path)
+
+
+def test_from_toml_rejects_unknown_section(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[unknown_section]\nx=1\n')
+    with pytest.raises(ConfigError):
+        RFBConfig.from_toml(path)
 
 
 def test_from_toml_missing_file():

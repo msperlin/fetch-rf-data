@@ -1,17 +1,15 @@
 """Configuration model for :mod:`rfbpy`.
 
-Every option that used to live in ``config.toml`` is represented here as a
-dataclass field.  The public entry point is :func:`build_config`, which turns a
-flat set of keyword arguments (one per option) into a :class:`RFBConfig`; the
-grouped dataclasses are an internal detail so that callers rarely type them.
+Every option is represented here as a dataclass field.  The public entry point is
+:func:`build_config`, which turns a flat set of keyword arguments (one per option)
+into a :class:`RFBConfig`; the grouped dataclasses are an internal detail so that
+callers rarely type them.
 
-``RFBConfig.from_toml`` is kept as a convenience so an existing ``config.toml``
-can still be used.
+``RFBConfig.from_toml`` is kept as a convenience so a ``config.toml`` can be used.
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Iterable
@@ -22,8 +20,6 @@ try:  # Python >= 3.11
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib
-
-log = logging.getLogger("rfbpy")
 
 DEFAULT_BASE_URL = (
     "https://arquivos.receitafederal.gov.br/public.php/webdav/"
@@ -247,11 +243,7 @@ class RFBConfig:
 
     @classmethod
     def from_toml(cls, path: str | Path) -> "RFBConfig":
-        """Build a config from a ``config.toml`` file.
-
-        Unknown keys (e.g. removed options from older configs) are ignored with
-        a warning so existing files keep working.
-        """
+        """Build a config from a ``config.toml`` file."""
 
         path = Path(path).expanduser()
         if not path.exists():
@@ -268,19 +260,18 @@ class RFBConfig:
             if not isinstance(values, dict):
                 raise ConfigError(f"[{section}] must be a table in config.toml")
             valid = {f.name for f in fields(group)}
-            accepted = {k: v for k, v in values.items() if k in valid}
-            ignored = set(values) - set(accepted)
-            if ignored:
-                log.warning(
-                    "Ignoring unsupported option(s) in [%s]: %s",
-                    section, ", ".join(sorted(ignored)),
+            unknown = sorted(set(values) - valid)
+            if unknown:
+                raise ConfigError(
+                    f"Unknown option(s) in [{section}]: {', '.join(unknown)}. "
+                    f"Valid options: {', '.join(sorted(valid))}"
                 )
-            setattr(config, section, replace(getattr(config, section), **accepted))
-        unknown = set(data) - set(_GROUPS)
+            setattr(config, section, replace(getattr(config, section), **values))
+        unknown = sorted(set(data) - set(_GROUPS))
         if unknown:
-            log.warning(
-                "Ignoring unsupported config section(s): %s",
-                ", ".join(sorted(unknown)),
+            raise ConfigError(
+                f"Unknown config section(s): {', '.join(unknown)}. "
+                f"Valid sections: {', '.join(_GROUPS)}"
             )
         return config
 

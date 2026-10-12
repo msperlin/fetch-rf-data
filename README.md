@@ -8,8 +8,8 @@
 **RFBpy** downloads, extracts and loads the open **CNPJ** (Brazilian company registry)
 data published by the Receita Federal, into **SQLite** or a **parquet** folder.
 
-It replaces the old set of numbered scripts with a single object — `RFBData` — that
-owns all the error handling and the decision of what still needs to be downloaded.
+A single object — `RFBData` — owns all the error handling and the decision of
+what still needs to be downloaded.
 
 - Discovers the monthly folders on the public Nextcloud/WebDAV share.
 - Downloads only what is missing or out of date (size + ETag check), with retries,
@@ -111,8 +111,7 @@ report.enough_disk    # needed_bytes <= free_bytes
 
 ## Configuration
 
-Every option that used to live in `config.toml` can be passed straight to the
-constructor:
+Every option can be passed straight to the constructor:
 
 ```python
 rfb = RFBData(
@@ -172,9 +171,8 @@ whole `RFBConfig`, or load an existing file:
 rfb = RFBData.from_toml("examples/config.toml")
 ```
 
-See [`examples/config.toml`](examples/config.toml) for the full template. Unknown
-keys from older configs are ignored with a warning. `RFB_SHARE_TOKEN` overrides
-`share_token`.
+See [`examples/config.toml`](examples/config.toml) for the full template.
+`RFB_SHARE_TOKEN` overrides `share_token`.
 
 ## Outputs
 
