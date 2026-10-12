@@ -50,5 +50,19 @@ def test_download_dry_run(tmp_path, monkeypatch, capsys):
              "etag": "e1", "last_modified": None}
         ],
     )
+    assert cli.main(["--config", str(config), "download-and-unzip", "--dry-run"]) == 0
+    assert "Cnaes.zip" in capsys.readouterr().out
+
+
+def test_download_alias(tmp_path, monkeypatch, capsys):
+    config = _write_config(tmp_path)
+    monkeypatch.setattr(
+        "rfbpy.webdav.list_files",
+        lambda *a, **k: [
+            {"name": "Cnaes.zip", "url": "http://x/Cnaes.zip", "size": 10,
+             "etag": "e1", "last_modified": None}
+        ],
+    )
+    # the legacy "download" name is kept as an alias
     assert cli.main(["--config", str(config), "download", "--dry-run"]) == 0
     assert "Cnaes.zip" in capsys.readouterr().out

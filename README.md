@@ -42,8 +42,7 @@ rfb = RFBData(
 rfb.list_months()      # -> ["2026-07", "2026-08", ...]
 rfb.check()            # prints a summary (returns the CheckReport too)
 
-rfb.download()         # downloads only what is missing, with resume + retries
-rfb.unzip()            # idempotent extraction
+rfb.download_and_unzip()   # downloads what is missing and extracts it
 rfb.to_sqlite()        # -> LoadResult(path=.../20261012_RF-CNPJ-database.db)
 rfb.to_parquet()       # -> LoadResult(path=.../04_parquet_files)
 ```
@@ -81,11 +80,11 @@ print(result.load.tables)                 # {'cnae': 1, 'estabelecimento': 25000
 ### Selecting files
 
 ```python
-rfb.download(only="Cnaes,Paises")   # comma-separated substrings
-rfb.download(only=["Empresas"])     # or a list
-rfb.download(month="2026-08")       # a specific folder instead of "latest"
-rfb.download(force=True)            # re-download everything
-rfb.download(dry_run=True)          # just report what would be downloaded
+rfb.download_and_unzip(only="Cnaes,Paises")   # comma-separated substrings
+rfb.download_and_unzip(only=["Empresas"])     # or a list
+rfb.download_and_unzip(month="2026-08")       # a specific folder instead of "latest"
+rfb.download_and_unzip(force=True)            # re-download everything
+rfb.download_and_unzip(dry_run=True)          # just report what would be downloaded
 ```
 
 If an entry in `files_to_download` (or in `only=`) matches no file on the share,
@@ -103,6 +102,9 @@ report.up_to_date     # list[FileInfo] already present
 report.needed_bytes   # bytes still to download
 report.enough_disk    # needed_bytes <= free_bytes
 ```
+
+`download_and_unzip()` returns a `DownloadResult`; the extraction outcome is in
+`result.extract` (`extracted` / `skipped` / `failed`).
 
 ## Configuration
 
@@ -198,12 +200,14 @@ duckdb.sql("SELECT uf, count(*) FROM 'parquet/*.parquet' GROUP BY 1").show()
 ```bash
 rfbpy --config examples/config.toml months
 rfbpy --config examples/config.toml check
-rfbpy --config examples/config.toml download --dry-run
-rfbpy --config examples/config.toml download --jobs 6
+rfbpy --config examples/config.toml download-and-unzip --dry-run
+rfbpy --config examples/config.toml download-and-unzip --jobs 6
 rfbpy --config examples/config.toml unzip
 rfbpy --config examples/config.toml load --dest parquet
 rfbpy --config examples/config.toml run --dest sqlite
 ```
+
+`download-and-unzip` also accepts the shorter alias `download`.
 
 The CLI reads `--config`, then `$RFB_CONFIG`, then `./config.toml`.
 
@@ -213,7 +217,7 @@ The CLI reads `--config`, then `$RFB_CONFIG`, then `./config.toml`.
   after they pass verification (size, and zip validity when `verify_zip=True`),
   so a partial file is never accepted. Interrupted or failed transfers keep the
   `.part` and are resumed with an HTTP `Range` request on the next attempt or the
-  next call to `download()`; if the server ignores `Range`, the file restarts
+  next call to `download_and_unzip()`; if the server ignores `Range`, the file restarts
   safely. Set `resume=False` (CLI `--no-resume`) to disable.
 - **Flaky WebDAV.** The share sits behind a load balancer whose nodes sometimes
   answer `PROPFIND` with an empty `HTTP 200` (or reset the connection) instead of

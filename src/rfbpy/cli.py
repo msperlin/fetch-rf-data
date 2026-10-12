@@ -31,7 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     check = sub.add_parser("check", help="show what is missing or out of date")
     _add_selection(check)
 
-    download = sub.add_parser("download", help="download the missing files")
+    download = sub.add_parser(
+        "download-and-unzip",
+        aliases=["download"],
+        help="download the missing files and extract the archives",
+    )
     _add_selection(download)
     download.add_argument("--dry-run", action="store_true", help="do not download")
     download.add_argument("--jobs", type=int, help="max concurrent downloads")
@@ -119,8 +123,8 @@ def main(argv=None) -> int:
             print(report.format())
             return 0
 
-        if args.command == "download":
-            result = data.download(
+        if args.command in ("download-and-unzip", "download"):
+            result = data.download_and_unzip(
                 only=args.only,
                 month=args.month,
                 force=args.force,
@@ -130,8 +134,10 @@ def main(argv=None) -> int:
                 for name in result.planned:
                     print(name)
                 return 0
+            extracted = result.extract.extracted if result.extract else []
             print(
                 f"{len(result.downloaded)} downloaded, "
+                f"{len(extracted)} extracted, "
                 f"{len(result.skipped)} skipped, "
                 f"{len(result.failed)} failed "
                 f"({result.bytes_downloaded} bytes) in {result.elapsed:.1f}s"

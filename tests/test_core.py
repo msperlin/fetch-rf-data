@@ -64,7 +64,7 @@ def test_discover_returns_fileinfo(rfb, monkeypatch):
 
 
 def test_check_and_download(rfb, monkeypatch, capsys):
-    payload = b"data"
+    payload = zip_with("Cnaes.CNAECSV", "0111301;X")
     monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
 
     report = rfb.check()
@@ -72,9 +72,9 @@ def test_check_and_download(rfb, monkeypatch, capsys):
     assert "RFB CNPJ" in printed
     assert "Cnaes.zip" in printed
     assert "To download   : 1" in printed
-    assert "4 B" in printed
+    assert f"{len(payload)} B" in printed
     assert [f.name for f in report.to_download] == ["Cnaes.zip"]
-    assert report.needed_bytes == 4
+    assert report.needed_bytes == len(payload)
     assert report.enough_disk
 
     def fake_download(url, dir_zip, request_timeout, **kwargs):
@@ -82,8 +82,9 @@ def test_check_and_download(rfb, monkeypatch, capsys):
         return True
 
     monkeypatch.setattr(webdav, "download_with_retries", fake_download)
-    result = rfb.download()
+    result = rfb.download_and_unzip()
     assert result.downloaded == ["Cnaes.zip"]
+    assert result.extract.extracted == ["Cnaes.zip"]
     assert result.ok
 
     report2 = rfb.check(print_report=False)
@@ -104,9 +105,10 @@ def test_check_report_format(rfb, monkeypatch):
 def test_download_dry_run(rfb, monkeypatch):
     payload = b"data"
     monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
-    result = rfb.download(dry_run=True)
+    result = rfb.download_and_unzip(dry_run=True)
     assert result.dry_run is True
     assert result.planned == ["Cnaes.zip"]
+    assert result.extract is None
     assert not (rfb.zip_dir / "Cnaes.zip").exists()
 
 
@@ -114,13 +116,13 @@ def test_download_reports_failure(rfb, monkeypatch):
     payload = b"data"
     monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
     monkeypatch.setattr(webdav, "download_with_retries", lambda *a, **k: False)
-    result = rfb.download()
+    result = rfb.download_and_unzip()
     assert result.failed == ["Cnaes.zip"]
     assert not result.ok
 
 
 def test_download_nothing_when_up_to_date(rfb, monkeypatch):
-    payload = b"data"
+    payload = zip_with("Cnaes.CNAECSV", "0111301;X")
     monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
     rfb.zip_dir.mkdir(parents=True, exist_ok=True)
     (rfb.zip_dir / "Cnaes.zip").write_bytes(payload)
@@ -129,9 +131,10 @@ def test_download_nothing_when_up_to_date(rfb, monkeypatch):
         raise AssertionError("should not download")
 
     monkeypatch.setattr(webdav, "download_with_retries", boom)
-    result = rfb.download()
+    result = rfb.download_and_unzip()
     assert result.downloaded == []
     assert result.skipped == ["Cnaes.zip"]
+    assert result.extract.extracted == ["Cnaes.zip"]
 
 
 def test_to_parquet_without_network(rfb):
@@ -154,6 +157,7 @@ def test_run_end_to_end_parquet(rfb, monkeypatch):
     monkeypatch.setattr(webdav, "download_with_retries", fake_download)
     result = rfb.run(destination="parquet")
     assert result.ok
+    assert result.extract.extracted == ["Cnaes.zip"]
     assert result.load.tables["cnae"] == 1
     assert (rfb.parquet_dir / "cnae.parquet").exists()
 
@@ -182,7 +186,7 @@ def test_unavailable_file_raises_with_instructions(tmp_path, monkeypatch):
 def test_only_unavailable_raises(rfb, monkeypatch):
     monkeypatch.setattr(webdav, "list_files", lambda *a, **k: [file_entry("Cnaes.zip", b"x")])
     with pytest.raises(UnavailableFilesError):
-        rfb.download(only="Nope")
+        rfb.download_and_unzip(only="Nope")
 
 
 def test_multi_file_substring_matches(monkeypatch, tmp_path):

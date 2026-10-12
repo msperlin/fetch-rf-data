@@ -8,8 +8,7 @@ Typical use::
         processing_dir="~/Desktop/rfb_processing",
         files_to_download=["Cnaes.zip", "Estabelecimentos", "Empresas"],
     )
-    rfb.download()
-    rfb.unzip()
+    rfb.download_and_unzip()
     rfb.to_sqlite()          # or rfb.to_parquet()
 
     # or everything at once
@@ -123,7 +122,7 @@ class CheckReport:
 
 @dataclass
 class DownloadResult:
-    """Outcome of :meth:`RFBData.download`."""
+    """Outcome of :meth:`RFBData.download_and_unzip`."""
 
     downloaded: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
@@ -132,10 +131,11 @@ class DownloadResult:
     bytes_downloaded: int = 0
     elapsed: float = 0.0
     dry_run: bool = False
+    extract: "_extract.ExtractResult | None" = None
 
     @property
     def ok(self) -> bool:
-        return not self.failed
+        return not self.failed and (self.extract is None or self.extract.ok)
 
 
 @dataclass
@@ -339,7 +339,7 @@ class RFBData:
 
     # -- download ------------------------------------------------------------
 
-    def download(
+    def download_and_unzip(
         self,
         only=None,
         month=None,
@@ -347,11 +347,35 @@ class RFBData:
         dry_run=False,
         show_progress=None,
     ) -> DownloadResult:
-        """Download the files that are missing or out of date.
+        """Download the missing files and extract the archives.
 
-        The decision of *what* to download, disk-space checks, retries,
-        resumable ``.part`` files and zip verification are all handled here.
+        Downloads only what is missing or out of date (disk-space checks,
+        retries, resumable ``.part`` files and zip verification are handled
+        here), then runs :meth:`unzip`.  The extraction outcome is available as
+        ``result.extract``.  ``dry_run=True`` skips both downloading and
+        extraction.
         """
+
+        result = self._download(
+            only=only,
+            month=month,
+            force=force,
+            dry_run=dry_run,
+            show_progress=show_progress,
+        )
+        if not dry_run:
+            result.extract = self.unzip()
+        return result
+
+    def _download(
+        self,
+        only=None,
+        month=None,
+        force=False,
+        dry_run=False,
+        show_progress=None,
+    ) -> DownloadResult:
+        """Download the files that are missing or out of date."""
 
         cfg = self.config
         d = cfg.downloads
@@ -629,10 +653,10 @@ class RFBData:
                 f"Unknown destination {destination!r} (use 'sqlite' or 'parquet')"
             )
 
-        download_result = self.download(
+        download_result = self.download_and_unzip(
             only=only, month=month, force=force, dry_run=dry_run
         )
-        extract_result = self.unzip()
+        extract_result = download_result.extract or _extract.ExtractResult()
         load_result = None
         if not dry_run:
             load_result = (
