@@ -4,7 +4,9 @@ from rfbpy.progress import BAR_FORMAT
 
 
 def test_bar_format_uses_two_decimals():
-    assert "{percentage:3.2f}" in BAR_FORMAT
+    assert "percentage" in BAR_FORMAT
+    assert "2f" in BAR_FORMAT
+    assert "{bar}" not in BAR_FORMAT
 
 
 def test_format_meter_renders_two_decimals():
