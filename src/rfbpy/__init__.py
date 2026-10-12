@@ -2,6 +2,7 @@
 
 from .config import (
     Arquivos,
+    Cache,
     Colunas,
     Dirs,
     Downloads,
@@ -44,6 +45,7 @@ __all__ = [
     "Leitura",
     "Sqlite",
     "Parquet",
+    "Cache",
     "Colunas",
     "FileInfo",
     "CheckReport",

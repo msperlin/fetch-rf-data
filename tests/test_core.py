@@ -1,4 +1,6 @@
 import io
+import json
+import time
 import zipfile
 from pathlib import Path
 
@@ -204,3 +206,67 @@ def test_multi_file_substring_matches(monkeypatch, tmp_path):
         "Estabelecimentos0.zip",
         "Estabelecimentos1.zip",
     ]
+
+
+def _counting_list(monkeypatch, calls):
+    files = [file_entry("Cnaes.zip", b"data")]
+
+    def fake_list(*a, **k):
+        calls["n"] += 1
+        return files
+
+    monkeypatch.setattr(webdav, "list_files", fake_list)
+    return files
+
+
+def test_manifest_cache_is_saved_and_reused(tmp_path, monkeypatch):
+    rfb = RFBData(
+        processing_dir=str(tmp_path), files_to_download=["Cnaes.zip"], show_progress=False
+    )
+    calls = {"n": 0}
+    _counting_list(monkeypatch, calls)
+
+    rfb.check(print_report=False)
+    assert rfb.cache_path.exists()
+    assert calls["n"] == 1
+
+    rfb.check(print_report=False)  # served from the cache
+    assert calls["n"] == 1
+
+    rfb.check(print_report=False, force=True)  # force bypasses the cache
+    assert calls["n"] == 2
+
+
+def test_manifest_cache_can_be_disabled(tmp_path, monkeypatch):
+    rfb = RFBData(
+        processing_dir=str(tmp_path),
+        files_to_download=["Cnaes.zip"],
+        show_progress=False,
+        cache_enabled=False,
+    )
+    calls = {"n": 0}
+    _counting_list(monkeypatch, calls)
+
+    rfb.check(print_report=False)
+    rfb.check(print_report=False)
+    assert calls["n"] == 2
+    assert not rfb.cache_path.exists()
+
+
+def test_manifest_cache_expires(tmp_path, monkeypatch):
+    rfb = RFBData(
+        processing_dir=str(tmp_path), files_to_download=["Cnaes.zip"], show_progress=False
+    )
+    calls = {"n": 0}
+    _counting_list(monkeypatch, calls)
+
+    rfb.check(print_report=False)
+    assert calls["n"] == 1
+
+    data = json.loads(rfb.cache_path.read_text(encoding="utf-8"))
+    for entry in data["entries"].values():
+        entry["saved_at"] = time.time() - 25 * 3600  # older than the 24 h TTL
+    rfb.cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+    rfb.check(print_report=False)
+    assert calls["n"] == 2

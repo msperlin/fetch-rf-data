@@ -11,6 +11,7 @@ zip_dir = "01_zip-files"
 unzip_dir = "02_unzipped_files"
 sqlite_dir = "03_sqlite_file"
 parquet_dir = "04_parquet_files"
+cache_dir = "cache"
 
 [urls]
 # Public Nextcloud share with the Receita Federal open CNPJ data.
@@ -71,6 +72,12 @@ final_pragmas = [
 
 [parquet]
 compression = "zstd"
+
+[cache]
+# Cache the WebDAV file listing (manifest) on disk to avoid re-listing the
+# share on every run. Entries expire after ttl_hours (1 day by default).
+enabled = true
+ttl_hours = 24
 
 [colunas]
 estabelecimento_cols = [

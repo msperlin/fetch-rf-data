@@ -152,6 +152,9 @@ rfb = RFBData(
     db_date_format="%Y%m%d",
 
     parquet_compression="zstd",
+    cache_enabled=True,
+    cache_ttl_hours=24,
+    cache_dir="cache",
 )
 ```
 
@@ -213,6 +216,12 @@ The CLI reads `--config`, then `$RFB_CONFIG`, then `./config.toml`.
 
 ## Notes
 
+- **File-manifest cache.** Listing the share is the slow/flaky part, so the
+  discovered `.zip` manifest is cached on disk at
+  `<processing_dir>/<cache_dir>/files_manifest.json` and reused for
+  `cache_ttl_hours` (default **24 h**). Logs say when it is *saved* ("Saved file
+  manifest cache …") and when it is *used* ("Using cached file manifest …").
+  `force=True` bypasses it, and `cache_enabled=False` turns it off.
 - **Resumable downloads.** Files are written to a `.part` and only renamed
   after they pass verification (size, and zip validity when `verify_zip=True`),
   so a partial file is never accepted. Interrupted or failed transfers keep the

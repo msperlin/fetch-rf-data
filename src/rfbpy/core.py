@@ -29,6 +29,7 @@ from . import downloads as dl
 from . import extract as _extract
 from . import tables as _tables
 from . import webdav
+from .cache import ManifestCache
 from .config import (
     RFBConfig,
     build_config,
@@ -223,6 +224,22 @@ class RFBData:
     def parquet_dir(self) -> Path:
         return self.paths["parquet"]
 
+    @property
+    def cache_path(self) -> Path:
+        """Path of the file-manifest cache (see ``[cache]``)."""
+
+        return self.paths["cache"] / "files_manifest.json"
+
+    def _manifest_cache(self):
+        """Return a :class:`ManifestCache`, or ``None`` when disabled."""
+
+        if not self.config.cache.enabled:
+            return None
+        return ManifestCache(
+            self.cache_path,
+            ttl_seconds=float(self.config.cache.ttl_hours) * 3600,
+        )
+
     def _ensure(self, *dirs: Path) -> None:
         for directory in dirs:
             Path(directory).mkdir(parents=True, exist_ok=True)
@@ -266,17 +283,48 @@ class RFBData:
             **self._discovery_kwargs(),
         )
 
-    def _list_remote(self, only, month) -> list[dict]:
-        """List the requested remote files, erroring on unmatched requests."""
+    def _list_remote(self, only, month, refresh=False) -> list[dict]:
+        """List the requested remote files, erroring on unmatched requests.
+
+        The full manifest is cached on disk for ``[cache].ttl_hours`` (24 h by
+        default); set ``refresh=True`` (or ``cache_enabled=False``) to bypass it.
+        """
 
         cfg = self.config
         resolved = self._resolve_month(month)
-        files = webdav.list_files(
-            cfg.urls.base_url,
-            cfg.downloads.request_timeout,
-            month=resolved,
-            **self._discovery_kwargs(),
-        )
+        key = f"{cfg.urls.base_url}|{resolved}"
+
+        cache = self._manifest_cache()
+        files = None
+        if cache is not None and not refresh:
+            hit = cache.get(key)
+            if hit is not None:
+                files, age = hit
+                log.info(
+                    "Using cached file manifest: %s (%d file(s), %.1f h old; "
+                    "expires in %.1f h)",
+                    cache.path,
+                    len(files),
+                    age / 3600,
+                    (cache.ttl_seconds - age) / 3600,
+                )
+
+        if files is None:
+            files = webdav.list_files(
+                cfg.urls.base_url,
+                cfg.downloads.request_timeout,
+                month=resolved,
+                **self._discovery_kwargs(),
+            )
+            if cache is not None:
+                cache.set(key, files)
+                log.info(
+                    "Saved file manifest cache: %s (%d file(s), valid for %.0f h)",
+                    cache.path,
+                    len(files),
+                    cache.ttl_seconds / 3600,
+                )
+
         matched, unmatched = webdav.match_files(files, self._desired_files(only))
         if unmatched:
             raise UnavailableFilesError(
@@ -296,7 +344,7 @@ class RFBData:
 
     def _plan(self, only, month, force):
         self._ensure(self.zip_dir)
-        raw = self._list_remote(only, month)
+        raw = self._list_remote(only, month, refresh=force)
         meta_file = dl.metadata_path(self.zip_dir)
         metadata = dl.load_metadata(meta_file)
         to_download, up_to_date = [], []

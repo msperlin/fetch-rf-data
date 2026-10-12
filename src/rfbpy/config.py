@@ -98,6 +98,7 @@ class Dirs:
     unzip_dir: str = "02_unzipped_files"
     sqlite_dir: str = "03_sqlite_file"
     parquet_dir: str = "04_parquet_files"
+    cache_dir: str = "cache"
 
     @property
     def processing(self) -> Path:
@@ -113,6 +114,7 @@ class Dirs:
             "unzip": base / self.unzip_dir,
             "sqlite": base / self.sqlite_dir,
             "parquet": base / self.parquet_dir,
+            "cache": base / self.cache_dir,
         }
 
 
@@ -191,6 +193,14 @@ class Parquet:
 
 
 @dataclass
+class Cache:
+    """Remote file-manifest cache (``[cache]``)."""
+
+    enabled: bool = True
+    ttl_hours: float = 24
+
+
+@dataclass
 class Colunas:
     """Column layout of the RFB CSVs (``[colunas]``)."""
 
@@ -220,6 +230,7 @@ class RFBConfig:
     leitura: Leitura = field(default_factory=Leitura)
     sqlite: Sqlite = field(default_factory=Sqlite)
     parquet: Parquet = field(default_factory=Parquet)
+    cache: Cache = field(default_factory=Cache)
     colunas: Colunas = field(default_factory=Colunas)
 
     # -- construction helpers ------------------------------------------------
@@ -290,6 +301,7 @@ _GROUPS = {
     "leitura": Leitura,
     "sqlite": Sqlite,
     "parquet": Parquet,
+    "cache": Cache,
     "colunas": Colunas,
 }
 
@@ -299,8 +311,13 @@ _FLAT_MAP: dict[str, tuple[str, str]] = {}
 for _group_name, _group in _GROUPS.items():
     for _f in fields(_group):
         _FLAT_MAP[_f.name] = (_group_name, _f.name)
-# Aliases so the flat kwargs read naturally.
+# Aliases so the flat kwargs read naturally.  The cache's ``enabled`` /
+# ``ttl_hours`` are too generic on their own, so they get a ``cache_`` prefix.
+_FLAT_MAP.pop("enabled", None)
+_FLAT_MAP.pop("ttl_hours", None)
 _FLAT_MAP["parquet_compression"] = ("parquet", "compression")
+_FLAT_MAP["cache_enabled"] = ("cache", "enabled")
+_FLAT_MAP["cache_ttl_hours"] = ("cache", "ttl_hours")
 
 
 def flat_options() -> list[str]:
