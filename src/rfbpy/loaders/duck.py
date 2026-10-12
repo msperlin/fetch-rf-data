@@ -161,7 +161,7 @@ def sanitize_latin1_file(path, temp_directory=None, show_progress=False):
         total=total,
         unit="B",
         unit_scale=True,
-        desc=f"  saneando {path.name}",
+        desc=f"  sanitizing {path.name}",
         leave=False,
         position=1,
         dynamic_ncols=True,

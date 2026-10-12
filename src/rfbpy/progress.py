@@ -1,10 +1,7 @@
 """Shared tqdm progress-bar configuration.
 
-All of rfbpy's bars use :data:`BAR_FORMAT`, which renders the completed
-percentage with two decimals (e.g. ``45.32%``).
+All of rfbpy's bars use :data:`BAR_FORMAT`: the description on the left, the
+bar, and only the completed percentage (two decimals) on the right.
 """
 
-BAR_FORMAT = (
-    "{desc}: {percentage:3.2f}%|{bar}| {n_fmt}/{total_fmt} "
-    "[{elapsed}<{remaining}, {rate_fmt}{postfix}]"
-)
+BAR_FORMAT = "{desc}: {bar}| {percentage:3.2f}%"

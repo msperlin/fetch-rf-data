@@ -64,8 +64,8 @@ def load_tables(
     )
     outer = tqdm(
         total=total_steps,
-        desc="Tabelas",
-        unit="tabela",
+        desc="Tables",
+        unit="table",
         leave=True,
         position=0,
         dynamic_ncols=True,
@@ -148,7 +148,7 @@ def finalize(path_sqlite, load_pragmas, final_pragmas, show_progress=True):
             ", ".join(sorted({table for table, _, _ in specs})) or "(none)",
         )
         for table, column, index in tqdm(
-            specs, desc="Índices", unit="índice",
+            specs, desc="Indexes", unit="index",
             disable=not show_progress, dynamic_ncols=True, bar_format=BAR_FORMAT,
         ):
             started = time.time()

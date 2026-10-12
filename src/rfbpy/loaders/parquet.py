@@ -52,8 +52,8 @@ def load_tables(
     )
     outer = tqdm(
         total=total_steps,
-        desc="Tabelas",
-        unit="tabela",
+        desc="Tables",
+        unit="table",
         leave=True,
         position=0,
         dynamic_ncols=True,
