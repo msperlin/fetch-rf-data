@@ -1,0 +1,103 @@
+# Example configuration for the rfbpy CLI and RFBData.from_toml().
+# Every option here can also be passed directly as a keyword argument to
+# RFBData(...) — see the README for the matching argument names.
+
+[dirs]
+# Directory where the downloaded files, extracted CSVs, database and parquet
+# files live.
+processing_dir = "~/Desktop/rfb_processing"
+# Working sub-folders created inside processing_dir.
+zip_dir = "01_zip-files"
+unzip_dir = "02_unzipped_files"
+sqlite_dir = "03_sqlite_file"
+parquet_dir = "04_parquet_files"
+
+[urls]
+# Public Nextcloud share with the Receita Federal open CNPJ data.
+base_url = "https://arquivos.receitafederal.gov.br/public.php/webdav/Dados/Cadastros/CNPJ/"
+# Public share token. Can be overridden by the RFB_SHARE_TOKEN environment variable.
+share_token = "gn672Ad4CF8N6TK"
+# "latest" (most recent folder) or a specific folder, e.g. "2026-08".
+month = "latest"
+
+[downloads]
+max_concurrent_downloads = 3
+request_timeout = 15
+connect_timeout = 10
+read_timeout = 60
+max_attempts = 3
+backoff = 2
+large_file_threshold_mb = 100
+max_large_downloads = 2
+resume = true
+verify_zip = true
+user_agent = "rfbpy/1.0"
+
+[arquivos]
+files_to_download = [
+    "Cnaes.zip", "Estabelecimentos", "Empresas",
+    # "Socios",
+    "Naturezas.zip", "Municipios.zip", "Paises.zip", "Qualificacoes.zip",
+    "Motivos.zip",
+]
+
+[unzip]
+skip_existing = true
+remove_zip_after_extract = false
+
+[leitura]
+remove_extracted_after_use = false
+encoding = "latin1"
+separator = ";"
+
+[sqlite]
+duckdb_threads = 0
+duckdb_memory_limit = "0"
+duckdb_temp_dir = ""
+duckdb_null_padding = false
+show_progress = true
+db_filename = "{date}_RF-CNPJ-database.db"
+db_date_format = "%Y%m%d"
+load_pragmas = [
+    "PRAGMA journal_mode = OFF",
+    "PRAGMA synchronous = OFF",
+    "PRAGMA temp_store = MEMORY",
+    "PRAGMA cache_size = -200000",
+]
+final_pragmas = [
+    "PRAGMA journal_mode = DELETE",
+    "PRAGMA synchronous = NORMAL",
+]
+
+[parquet]
+compression = "zstd"
+
+[colunas]
+estabelecimento_cols = [
+    "cnpj_basico", "cnpj_ordem", "cnpj_dv", "matriz_filial",
+    "nome_fantasia", "situacao_cadastral", "data_situacao_cadastral", "motivo_situacao_cadastral",
+    "nome_cidade_exterior", "pais", "data_inicio_atividades", "cnae_fiscal",
+    "cnae_fiscal_secundaria", "tipo_logradouro", "logradouro", "numero",
+    "complemento", "bairro", "cep", "uf", "municipio", "ddd1", "telefone1",
+    "ddd2", "telefone2", "ddd_fax", "fax", "correio_eletronico", "situacao_especial", "data_situacao_especial",
+]
+estabelecimento_cols_to_drop = [
+    "cnpj_ordem", "cnpj_dv", "ddd1",
+    "telefone1", "ddd2", "telefone2", "ddd_fax",
+    "fax", "correio_eletronico", "situacao_especial",
+    "data_situacao_especial",
+]
+empresas_cols = [
+    "cnpj_basico", "razao_social", "natureza_juridica",
+    "qualificacao_responsavel", "capital_social_str", "porte_empresa",
+    "ente_federativo_responsavel",
+]
+empresas_cols_to_drop = []
+socios_cols = [
+    "cnpj_basico", "identificador_de_socio", "nome_socio", "cnpj_cpf_socio",
+    "qualificacao_socio", "data_entrada_sociedade", "pais", "representante_legal",
+    "nome_representante", "qualificacao_representante_legal", "faixa_etaria",
+]
+socios_cols_to_drop = [
+    "nome_socio", "representante_legal", "nome_representante",
+]
