@@ -1,5 +1,7 @@
 # RFBpy
 
+[![CI](https://github.com/msperlin/rfbpy/actions/workflows/ci.yml/badge.svg)](https://github.com/msperlin/rfbpy/actions/workflows/ci.yml)
+
 **RFBpy** downloads, extracts and loads the open **CNPJ** (Brazilian company registry)
 data published by the Receita Federal, into **SQLite** or a **parquet** folder.
 
