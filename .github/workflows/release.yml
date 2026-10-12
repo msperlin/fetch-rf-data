@@ -4,11 +4,6 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      testpypi:
-        description: Publish to TestPyPI instead of PyPI
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -95,26 +90,3 @@ jobs:
 
       - name: Publish to PyPI
         run: uv publish
-
-  publish-testpypi:
-    name: publish to TestPyPI
-    needs: [build, smoke]
-    if: github.event_name == 'workflow_dispatch' && inputs.testpypi
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/rfbpy
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to TestPyPI
-        run: uv publish --publish-url https://test.pypi.org/legacy/

@@ -309,9 +309,9 @@ tokens). The package version comes from `__version__` in
    ```
 
 The workflow builds the sdist/wheel, smoke-tests them in an isolated
-environment, checks the tag matches `__version__`, and publishes to PyPI.
-Use **Actions → Release → Run workflow** (with the `testpypi` input) to publish
-to TestPyPI first.
+environment, checks the tag matches `__version__`, and publishes to PyPI. Use
+**Actions → Release → Run workflow** to run the build and smoke tests manually
+without publishing.
 
 One-time setup: add a *pending trusted publisher* on PyPI for project `rfbpy`
 (owner `msperlin`, repo `rfbpy`, workflow `release.yml`, environment `pypi`),
