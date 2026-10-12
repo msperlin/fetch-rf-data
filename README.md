@@ -38,13 +38,35 @@ rfb = RFBData(
 )
 
 rfb.list_months()      # -> ["2026-07", "2026-08", ...]
-rfb.check()            # report: available / up to date / to download / bytes needed
+rfb.check()            # prints a summary (returns the CheckReport too)
 
 rfb.download()         # downloads only what is missing, with resume + retries
 rfb.unzip()            # idempotent extraction
 rfb.to_sqlite()        # -> LoadResult(path=.../20261012_RF-CNPJ-database.db)
 rfb.to_parquet()       # -> LoadResult(path=.../04_parquet_files)
 ```
+
+`check()` prints something like:
+
+```
+RFB CNPJ — check
+  Share      : https://arquivos.receitafederal.gov.br/public.php/webdav/Dados/Cadastros/CNPJ/
+  Month      : latest
+  Zip folder : /home/me/Desktop/rfb_processing/01_zip-files
+
+  Files offered : 3
+  Up to date    : 1
+  To download   : 2
+
+  Pending files:
+    - Motivos.zip      1.2 KB
+    - Cnaes.zip       21.6 KB
+
+  Download need : 22.8 KB (total 25.4 KB)
+  Disk free     : 15.5 GB  [ok]
+```
+
+Pass `print_report=False` to suppress the output and use the returned object programmatically.
 
 Or run the whole pipeline in one call:
 

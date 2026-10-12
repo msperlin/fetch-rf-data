@@ -38,7 +38,7 @@ def test_check(tmp_path, monkeypatch, capsys):
     )
     assert cli.main(["--config", str(config), "check"]) == 0
     out = capsys.readouterr().out
-    assert "To download: 1" in out
+    assert "To download   : 1" in out
 
 
 def test_download_dry_run(tmp_path, monkeypatch, capsys):

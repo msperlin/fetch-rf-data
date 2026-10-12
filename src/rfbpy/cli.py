@@ -114,15 +114,9 @@ def main(argv=None) -> int:
 
         if args.command == "check":
             report = data.check(
-                only=args.only, month=args.month, force=args.force
+                only=args.only, month=args.month, force=args.force, print_report=False
             )
-            print(f"Month: {report.month}")
-            print(f"Available: {len(report.available)}")
-            print(f"Up to date: {len(report.up_to_date)}")
-            print(f"To download: {len(report.to_download)}")
-            for info in report.to_download:
-                print(f"  {info.name} ({info.size} bytes)")
-            print(f"Needed: {report.needed_bytes} bytes | free: {report.free_bytes}")
+            print(report.format())
             return 0
 
         if args.command == "download":

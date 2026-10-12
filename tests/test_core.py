@@ -63,11 +63,16 @@ def test_discover_returns_fileinfo(rfb, monkeypatch):
     assert files[0].size == len(payload)
 
 
-def test_check_and_download(rfb, monkeypatch):
+def test_check_and_download(rfb, monkeypatch, capsys):
     payload = b"data"
     monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
 
     report = rfb.check()
+    printed = capsys.readouterr().out
+    assert "RFB CNPJ" in printed
+    assert "Cnaes.zip" in printed
+    assert "To download   : 1" in printed
+    assert "4 B" in printed
     assert [f.name for f in report.to_download] == ["Cnaes.zip"]
     assert report.needed_bytes == 4
     assert report.enough_disk
@@ -81,9 +86,19 @@ def test_check_and_download(rfb, monkeypatch):
     assert result.downloaded == ["Cnaes.zip"]
     assert result.ok
 
-    report2 = rfb.check()
+    report2 = rfb.check(print_report=False)
     assert report2.to_download == []
     assert [f.name for f in report2.up_to_date] == ["Cnaes.zip"]
+
+
+def test_check_report_format(rfb, monkeypatch):
+    payload = b"data"
+    monkeypatch.setattr(webdav, "get_all_links", lambda *a, **k: [file_entry("Cnaes.zip", payload)])
+    report = rfb.check(print_report=False)
+    text = report.format()
+    assert "Month      : latest" in text
+    assert "Zip folder :" in text
+    assert text == str(report)
 
 
 def test_download_dry_run(rfb, monkeypatch):

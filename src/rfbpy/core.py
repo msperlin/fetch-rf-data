@@ -39,6 +39,7 @@ from .config import (
 from .errors import ConfigError, DownloadError, ShareAccessError
 from .loaders import parquet as parquet_loader
 from .loaders import sqlite as sqlite_loader
+from .loaders.duck import human_size
 
 log = logging.getLogger("rfbpy")
 
@@ -75,6 +76,8 @@ class CheckReport:
     total_bytes: int = 0
     needed_bytes: int = 0
     free_bytes: int = 0
+    base_url: str | None = None
+    zip_dir: Path | None = None
 
     @property
     def missing(self) -> list[FileInfo]:
@@ -83,6 +86,39 @@ class CheckReport:
     @property
     def enough_disk(self) -> bool:
         return self.needed_bytes <= self.free_bytes
+
+    def format(self) -> str:
+        """Return a human-readable, printable summary of the report."""
+
+        lines = ["RFB CNPJ — check", f"  Share      : {self.base_url or '(unknown)'}"]
+        lines.append(f"  Month      : {self.month or '(unknown)'}")
+        if self.zip_dir is not None:
+            lines.append(f"  Zip folder : {self.zip_dir}")
+        lines.append("")
+
+        status = "ok" if self.enough_disk else "NOT ENOUGH SPACE"
+        lines.append(f"  Files offered : {len(self.available)}")
+        lines.append(f"  Up to date    : {len(self.up_to_date)}")
+        lines.append(f"  To download   : {len(self.to_download)}")
+
+        if self.to_download:
+            lines.append("")
+            lines.append("  Pending files:")
+            width = max(len(f.name) for f in self.to_download)
+            for info in self.to_download:
+                size = human_size(info.size) if info.size else "?"
+                lines.append(f"    - {info.name:<{width}}  {size:>10}")
+
+        lines.append("")
+        lines.append(
+            f"  Download need : {human_size(self.needed_bytes)} "
+            f"(total {human_size(self.total_bytes)})"
+        )
+        lines.append(f"  Disk free     : {human_size(self.free_bytes)}  [{status}]")
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        return self.format()
 
 
 @dataclass
@@ -266,12 +302,13 @@ class RFBData:
                 up_to_date.append(item)
         return raw, to_download, up_to_date, metadata, meta_file
 
-    def check(self, only=None, month=None, force=False) -> CheckReport:
+    def check(self, only=None, month=None, force=False, print_report=True) -> CheckReport:
         """Report available files and which ones still need downloading.
 
         Nothing is downloaded and no network request is made to the files
         themselves; this only lists the WebDAV collection and inspects the
-        local directory.
+        local directory.  A readable summary is printed to stdout (set
+        ``print_report=False`` to only get the returned object).
         """
 
         raw, to_download, up_to_date, _metadata, _meta = self._plan(
@@ -279,7 +316,7 @@ class RFBData:
         )
         free, needed = dl.check_disk_space(self.zip_dir, to_download)
         total = sum((item.get("size") or 0) for item in raw)
-        return CheckReport(
+        report = CheckReport(
             month=self._resolve_month(month),
             available=[FileInfo.from_dict(i) for i in raw],
             to_download=[FileInfo.from_dict(i) for i in to_download],
@@ -287,7 +324,12 @@ class RFBData:
             total_bytes=total,
             needed_bytes=needed,
             free_bytes=free,
+            base_url=self.config.urls.base_url,
+            zip_dir=self.zip_dir,
         )
+        if print_report:
+            print(report.format())
+        return report
 
     # -- download ------------------------------------------------------------
 
