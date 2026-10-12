@@ -154,14 +154,10 @@ def main(argv=None) -> int:
             return 1 if result.failed else 0
 
         if args.command == "load":
-            result = (
+            if args.dest == "sqlite":
                 data.to_sqlite(path=args.path)
-                if args.dest == "sqlite"
-                else data.to_parquet(path=args.path)
-            )
-            print(f"{result.destination}: {result.path} ({result.elapsed:.1f}s)")
-            for name, rows in result.tables.items():
-                print(f"  {name}: {rows} rows")
+            else:
+                data.to_parquet(path=args.path)
             return 0
 
         if args.command == "run":

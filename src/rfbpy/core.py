@@ -148,6 +148,34 @@ class LoadResult:
     tables: dict[str, int] = field(default_factory=dict)
     establishment_count: int | None = None
     elapsed: float = 0.0
+    files: dict[str, int] = field(default_factory=dict)  # output name -> bytes
+
+    def format(self) -> str:
+        """Return a human-readable, printable summary of the load."""
+
+        lines = [f"RFB CNPJ — {self.destination}"]
+        lines.append(f"  Output : {self.path}")
+        lines.append(f"  Tables : {len(self.tables)}")
+        if self.files:
+            lines.append(f"  Size   : {human_size(sum(self.files.values()))}")
+        lines.append(f"  Time   : {self.elapsed:.1f} s")
+        if self.establishment_count is not None:
+            lines.append(f"  Estabelecimentos : {self.establishment_count:,}")
+        if self.tables:
+            lines.append("")
+            width = max(len(name) for name in self.tables)
+            has_sizes = any(name in self.files for name in self.tables)
+            for name, rows in self.tables.items():
+                rows_txt = f"{rows:,}" if isinstance(rows, int) and rows >= 0 else "?"
+                line = f"  {name:<{width}}  {rows_txt:>14} rows"
+                if has_sizes:
+                    size = human_size(self.files[name]) if name in self.files else ""
+                    line += f"  {size:>10}"
+                lines.append(line)
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        return self.format()
 
 
 @dataclass
@@ -601,8 +629,12 @@ class RFBData:
     def _temp_dir(self) -> Path:
         return Path(self.config.sqlite.duckdb_temp_dir or (self.processing_dir / "duckdb_tmp"))
 
-    def to_sqlite(self, path=None) -> LoadResult:
-        """Load the extracted CSVs into a SQLite database."""
+    def to_sqlite(self, path=None, print_report=True) -> LoadResult:
+        """Load the extracted CSVs into a SQLite database.
+
+        Prints a summary (output path, tables, rows, size, time) unless
+        ``print_report=False``.
+        """
 
         cfg = self.config
         code_tables, big_tables = self._build_tables()
@@ -614,6 +646,8 @@ class RFBData:
             log.warning("File %s already exists; removing it.", db_path)
             db_path.unlink()
 
+        if print_report:
+            print(f"Building SQLite database: {db_path}")
         log.info("SQLite output: %s", db_path)
         started = time.time()
         rows = sqlite_loader.load_tables(
@@ -638,16 +672,29 @@ class RFBData:
             cfg.sqlite.final_pragmas,
             show_progress=bool(cfg.sqlite.show_progress),
         )
-        return LoadResult(
+        files = {}
+        try:
+            files[db_path.name] = db_path.stat().st_size
+        except OSError:
+            pass
+        result = LoadResult(
             destination="sqlite",
             path=db_path,
             tables=rows,
             establishment_count=count,
             elapsed=time.time() - started,
+            files=files,
         )
+        if print_report:
+            print(result.format())
+        return result
 
-    def to_parquet(self, path=None) -> LoadResult:
-        """Load the extracted CSVs into one parquet file per table."""
+    def to_parquet(self, path=None, print_report=True) -> LoadResult:
+        """Load the extracted CSVs into one parquet file per table.
+
+        Prints a summary (output path, tables, rows, file sizes, time) unless
+        ``print_report=False``.
+        """
 
         cfg = self.config
         code_tables, big_tables = self._build_tables()
@@ -656,6 +703,8 @@ class RFBData:
         out_dir = Path(path) if path else self.parquet_dir
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        if print_report:
+            print(f"Writing parquet files to: {out_dir}")
         log.info("Parquet output: %s", out_dir)
         started = time.time()
         rows = parquet_loader.load_tables(
@@ -675,13 +724,25 @@ class RFBData:
         if cfg.leitura.remove_extracted_after_use:
             sqlite_loader.remove_source_files(self.unzip_dir, code_tables, big_tables)
 
-        return LoadResult(
+        files = {}
+        for table in rows:
+            parquet_file = out_dir / f"{table}.parquet"
+            try:
+                files[table] = parquet_file.stat().st_size
+            except OSError:
+                pass
+
+        result = LoadResult(
             destination="parquet",
             path=out_dir,
             tables=rows,
             establishment_count=rows.get("estabelecimento"),
             elapsed=time.time() - started,
+            files=files,
         )
+        if print_report:
+            print(result.format())
+        return result
 
     # -- orchestration -------------------------------------------------------
 

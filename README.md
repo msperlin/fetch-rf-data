@@ -172,6 +172,21 @@ keys from older configs are ignored with a warning. `RFB_SHARE_TOKEN` overrides
 
 ## Outputs
 
+`to_sqlite()` and `to_parquet()` print a summary when they start and finish
+(pass `print_report=False` to silence them):
+
+```
+RFB CNPJ — parquet
+  Output : /home/me/Desktop/rfb_processing/04_parquet_files
+  Tables : 3
+  Size   : 15.1 GB
+  Time   : 842.3 s
+
+  cnae                 1,141 rows       41.8 KB
+  empresas        60,000,000 rows        6.2 GB
+  estabelecimento 71,000,000 rows        8.9 GB
+```
+
 ### SQLite
 
 `to_sqlite()` writes a database with the tables:

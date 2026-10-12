@@ -3,6 +3,7 @@ import sqlite3
 import duckdb
 import pytest
 
+from rfbpy import RFBData
 from rfbpy.loaders import sqlite as sqlite_loader
 from rfbpy.tables import CNPJ_EXPR, BigTable, CodeTable
 
@@ -146,3 +147,32 @@ def test_remove_source_files(env):
     sqlite_loader.remove_source_files(src, CODE_TABLES, big)
     assert not list(src.glob("*.ESTABELE"))
     assert not list(src.glob("*.CNAECSV"))
+
+
+def test_rfbdata_to_sqlite_prints_report(tmp_path, capsys):
+    rfb = RFBData(
+        processing_dir=str(tmp_path), files_to_download=["Cnaes.zip"], show_progress=False
+    )
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+
+    result = rfb.to_sqlite()
+
+    out = capsys.readouterr().out
+    assert "Building SQLite database:" in out
+    assert "RFB CNPJ — sqlite" in out
+    assert "cnae" in out
+    assert result.tables["cnae"] == 1
+    assert result.files  # the database file size
+
+
+def test_rfbdata_to_sqlite_print_report_off(tmp_path, capsys):
+    rfb = RFBData(
+        processing_dir=str(tmp_path), files_to_download=["Cnaes.zip"], show_progress=False
+    )
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    rfb.to_sqlite(print_report=False)
+    out = capsys.readouterr().out
+    assert "Building SQLite database:" not in out
+    assert "RFB CNPJ — sqlite" not in out

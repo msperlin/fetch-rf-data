@@ -139,13 +139,31 @@ def test_download_nothing_when_up_to_date(rfb, monkeypatch):
     assert result.extract.extracted == ["Cnaes.zip"]
 
 
-def test_to_parquet_without_network(rfb):
+def test_to_parquet_without_network(rfb, capsys):
     rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
     (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
     result = rfb.to_parquet()
     assert result.destination == "parquet"
     assert result.tables["cnae"] == 1
     assert (rfb.parquet_dir / "cnae.parquet").exists()
+
+    out = capsys.readouterr().out
+    assert "Writing parquet files to:" in out
+    assert "RFB CNPJ — parquet" in out
+    assert "cnae" in out
+    assert "Output :" in out
+    # file sizes are collected per table
+    assert "cnae" in result.files and result.files["cnae"] > 0
+    assert result.format() == str(result)
+
+
+def test_to_parquet_print_report_off(rfb, capsys):
+    rfb.unzip_dir.mkdir(parents=True, exist_ok=True)
+    (rfb.unzip_dir / "Cnaes.CNAECSV").write_bytes("0111301;X".encode("latin1"))
+    rfb.to_parquet(print_report=False)
+    out = capsys.readouterr().out
+    assert "Writing parquet files to:" not in out
+    assert "RFB CNPJ — parquet" not in out
 
 
 def test_run_end_to_end_parquet(rfb, monkeypatch):
