@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 from .errors import ConfigError, ShareAccessError
+from .progress import BAR_FORMAT
 
 USER_AGENT = "rfbpy/1.0"
 
@@ -372,6 +373,7 @@ def download_with_retries(
                         unit_scale=True,
                         desc=filename,
                         leave=False,
+                        bar_format=BAR_FORMAT,
                     )
                 try:
                     with open(temp, mode) as fh:

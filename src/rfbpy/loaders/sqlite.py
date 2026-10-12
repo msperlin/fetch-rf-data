@@ -11,6 +11,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
+from ..progress import BAR_FORMAT
 from ..tables import INDEX_SPECS
 from . import duck
 
@@ -68,6 +69,7 @@ def load_tables(
         leave=True,
         position=0,
         dynamic_ncols=True,
+        bar_format=BAR_FORMAT,
         disable=not show_progress,
     )
     try:
@@ -147,7 +149,7 @@ def finalize(path_sqlite, load_pragmas, final_pragmas, show_progress=True):
         )
         for table, column, index in tqdm(
             specs, desc="Índices", unit="índice",
-            disable=not show_progress, dynamic_ncols=True,
+            disable=not show_progress, dynamic_ncols=True, bar_format=BAR_FORMAT,
         ):
             started = time.time()
             conn.execute(f"CREATE INDEX IF NOT EXISTS {index} ON {table} ({column})")

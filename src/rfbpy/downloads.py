@@ -15,6 +15,8 @@ from pathlib import Path
 
 from tqdm import tqdm
 
+from .progress import BAR_FORMAT
+
 METADATA_FILENAME = ".download_metadata.json"
 
 log = logging.getLogger("rfbpy")
@@ -117,6 +119,7 @@ class Progress:
             unit_scale=True,
             desc=desc,
             dynamic_ncols=True,
+            bar_format=BAR_FORMAT,
         )
 
     def update(self, n):

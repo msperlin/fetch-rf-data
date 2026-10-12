@@ -12,6 +12,8 @@ from pathlib import Path
 import duckdb
 from tqdm import tqdm
 
+from ..progress import BAR_FORMAT
+
 log = logging.getLogger("rfbpy")
 
 # pandas calls it "latin1"; DuckDB calls it "latin-1".
@@ -107,7 +109,7 @@ class _QueryProgress:
                 leave=False,
                 position=position,
                 dynamic_ncols=True,
-                bar_format="{l_bar}{bar:30}{r_bar}",
+                bar_format=BAR_FORMAT,
             )
             if enabled
             else None
@@ -163,6 +165,7 @@ def sanitize_latin1_file(path, temp_directory=None, show_progress=False):
         leave=False,
         position=1,
         dynamic_ncols=True,
+        bar_format=BAR_FORMAT,
         disable=not show_progress,
     )
     try:

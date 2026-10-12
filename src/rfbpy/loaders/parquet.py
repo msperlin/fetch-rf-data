@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
+from ..progress import BAR_FORMAT
 from . import duck
 
 log = logging.getLogger("rfbpy")
@@ -56,6 +57,7 @@ def load_tables(
         leave=True,
         position=0,
         dynamic_ncols=True,
+        bar_format=BAR_FORMAT,
         disable=not show_progress,
     )
     try:
